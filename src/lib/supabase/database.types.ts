@@ -155,6 +155,30 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["user_invitations"]["Insert"]>;
         Relationships: [];
       };
+      gsc_connections: {
+        Row: { id: string; user_id: string; google_email: string | null; encrypted_access_token: string; access_iv: string; access_tag: string; access_key_version: string; encrypted_refresh_token: string; refresh_iv: string; refresh_tag: string; refresh_key_version: string; token_expires_at: string; status: "active" | "expired" | "revoked"; last_synced_at: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; user_id: string; google_email?: string | null; encrypted_access_token: string; access_iv: string; access_tag: string; access_key_version: string; encrypted_refresh_token: string; refresh_iv: string; refresh_tag: string; refresh_key_version: string; token_expires_at: string; status?: "active" | "expired" | "revoked"; last_synced_at?: string | null; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["gsc_connections"]["Insert"]>;
+        Relationships: [];
+      };
+      gsc_properties: {
+        Row: { id: string; connection_id: string; user_id: string; site_url: string; permission_level: string; selected: boolean; last_synced_at: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; connection_id: string; user_id: string; site_url: string; permission_level: string; selected?: boolean; last_synced_at?: string | null; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["gsc_properties"]["Insert"]>;
+        Relationships: [];
+      };
+      gsc_metrics_daily: {
+        Row: { id: number; property_id: string; user_id: string; metric_date: string; query: string; page: string; country: string; device: string; search_type: string; clicks: number; impressions: number; ctr: number; position: number; synced_at: string };
+        Insert: { id?: never; property_id: string; user_id: string; metric_date: string; query?: string; page?: string; country?: string; device?: string; search_type?: string; clicks?: number; impressions?: number; ctr?: number; position?: number; synced_at?: string };
+        Update: Partial<Database["public"]["Tables"]["gsc_metrics_daily"]["Insert"]>;
+        Relationships: [];
+      };
+      title_suggestions: {
+        Row: { id: string; user_id: string; property_id: string; source_query: string; source_page: string; suggested_title: string; evidence: Json; score: number; status: "pending" | "accepted" | "rejected"; created_at: string; updated_at: string };
+        Insert: { id?: string; user_id: string; property_id: string; source_query: string; source_page: string; suggested_title: string; evidence: Json; score: number; status?: "pending" | "accepted" | "rejected"; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["title_suggestions"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

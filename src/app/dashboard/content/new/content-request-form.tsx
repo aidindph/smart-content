@@ -12,7 +12,7 @@ const modelHints: Record<string, string[]> = {
   openrouter: ["openai/gpt-5-mini", "google/gemini-2.5-flash"],
 };
 
-export function ContentRequestForm({ idempotencyKey, keys }: { idempotencyKey: string; keys: KeyOption[] }) {
+export function ContentRequestForm({ idempotencyKey, keys, initialTopic = "", initialKeywords = "" }: { idempotencyKey: string; keys: KeyOption[]; initialTopic?: string; initialKeywords?: string }) {
   const [state, action, pending] = useActionState(createContentAction, initialState);
   const imageKeys = keys.filter((key) => key.supportsImage);
   const hints = [...new Set(keys.flatMap((key) => modelHints[key.providerSlug] ?? []))];
@@ -23,9 +23,9 @@ export function ContentRequestForm({ idempotencyKey, keys }: { idempotencyKey: s
       <section className="panel p-6">
         <h2 className="text-xl font-black">موضوع و مخاطب</h2>
         <div className="mt-5 grid gap-5 md:grid-cols-2">
-          <label className="grid gap-2 text-sm font-bold md:col-span-2">موضوع مقاله<input className="field" maxLength={300} name="topic" placeholder="مثلاً راهنمای انتخاب نرم‌افزار مدیریت پروژه" required />{state.fieldErrors?.topic?.map((error) => <span className="text-xs text-danger" key={error}>{error}</span>)}</label>
+          <label className="grid gap-2 text-sm font-bold md:col-span-2">موضوع مقاله<input className="field" defaultValue={initialTopic} maxLength={300} name="topic" placeholder="مثلاً راهنمای انتخاب نرم‌افزار مدیریت پروژه" required />{state.fieldErrors?.topic?.map((error) => <span className="text-xs text-danger" key={error}>{error}</span>)}</label>
           <label className="grid gap-2 text-sm font-bold">مخاطب هدف<input className="field" maxLength={200} name="audience" placeholder="مدیران کسب‌وکارهای کوچک" required />{state.fieldErrors?.audience?.map((error) => <span className="text-xs text-danger" key={error}>{error}</span>)}</label>
-          <label className="grid gap-2 text-sm font-bold">کلیدواژه‌ها<input className="field" name="keywords" placeholder="مدیریت پروژه، بهره‌وری، تیم" /><span className="text-xs font-normal text-muted">با ویرگول جدا کنید.</span></label>
+          <label className="grid gap-2 text-sm font-bold">کلیدواژه‌ها<input className="field" defaultValue={initialKeywords} name="keywords" placeholder="مدیریت پروژه، بهره‌وری، تیم" /><span className="text-xs font-normal text-muted">با ویرگول جدا کنید.</span></label>
           <label className="grid gap-2 text-sm font-bold">زبان<select className="field" defaultValue="fa" name="language"><option value="fa">فارسی</option><option value="en">انگلیسی</option><option value="ar">عربی</option></select></label>
           <label className="grid gap-2 text-sm font-bold">لحن<select className="field" defaultValue="professional" name="tone"><option value="professional">حرفه‌ای</option><option value="friendly">صمیمی</option><option value="persuasive">اقناعی</option><option value="educational">آموزشی</option><option value="creative">خلاقانه</option></select></label>
           <label className="grid gap-2 text-sm font-bold">تعداد واژهٔ هدف<input className="field" defaultValue={1200} max={5000} min={400} name="targetWords" step={100} type="number" />{state.fieldErrors?.targetWords?.map((error) => <span className="text-xs text-danger" key={error}>{error}</span>)}</label>

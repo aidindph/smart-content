@@ -3,7 +3,8 @@ import { AppIcon } from "@/components/app-icon";
 import { requireUser } from "@/lib/auth/guards";
 import { getGoogleOAuthConfig } from "@/lib/search-console/google";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { disconnectSearchConsoleAction, suggestTitlesAction, syncSearchConsoleAction, togglePropertyAction, updateSuggestionAction } from "./actions";
+import { disconnectSearchConsoleAction, syncSearchConsoleAction, togglePropertyAction, updateSuggestionAction } from "./actions";
+import { SuggestTitleForm } from "./suggest-title-form";
 
 export const metadata: Metadata = { title: "سرچ کنسول" };
 type Connection = { id: string; google_email: string | null; status: string; last_synced_at: string | null };
@@ -12,6 +13,7 @@ type Suggestion = { id: string; property_id: string; source_query: string; sourc
 type Metric = { clicks: number; impressions: number };
 type KeyRow = { id: string; provider_id: string; label: string; key_hint: string };
 type Provider = { id: string; name: string; slug: string; enabled: boolean };
+type Model = { provider_id: string; model_key: string; display_name: string; kind: "text" | "image" | "multimodal" };
 
 const notices: Record<string, string> = { connected: "حساب گوگل متصل شد؛ اکنون ویژگی‌ها را همگام کنید.", synced: "داده‌های سرچ کنسول به‌روز شدند.", disconnected: "اتصال سرچ کنسول حذف شد.", suggested: "پیشنهادهای تازه بر پایهٔ داده ساخته شدند." };
 const errors: Record<string, string> = { "not-configured": "اتصال گوگل هنوز توسط مدیر سامانه فعال نشده است.", state: "اعتبار درخواست اتصال تأیید نشد؛ دوباره تلاش کنید.", oauth: "اتصال حساب گوگل کامل نشد.", sync: "همگام‌سازی سرچ کنسول انجام نشد.", property: "ویژگی انتخاب‌شده معتبر نیست.", "no-data": "دادهٔ کافی برای پیشنهاد عنوان وجود ندارد." };
@@ -20,7 +22,7 @@ export default async function SearchConsolePage({ searchParams }: { searchParams
   const { supabase } = await requireUser();
   const admin = createAdminClient();
   const query = await searchParams;
-  const [{ data: connection }, { data: properties }, { data: suggestions }, { data: metrics }, { data: keys }, { data: systemKeys }, { data: providers }] = await Promise.all([
+  const [{ data: connection }, { data: properties }, { data: suggestions }, { data: metrics }, { data: keys }, { data: systemKeys }, { data: providers }, { data: models }] = await Promise.all([
     supabase.from("gsc_connections").select("id, google_email, status, last_synced_at").maybeSingle<Connection>(),
     supabase.from("gsc_properties").select("id, site_url, permission_level, selected, last_synced_at").order("site_url").returns<Property[]>(),
     supabase.from("title_suggestions").select("id, property_id, source_query, source_page, suggested_title, evidence, score, status").order("score", { ascending: false }).limit(50).returns<Suggestion[]>(),
@@ -28,6 +30,7 @@ export default async function SearchConsolePage({ searchParams }: { searchParams
     supabase.from("user_api_keys").select("id, provider_id, label, key_hint").is("deleted_at", null).eq("is_active", true).eq("test_status", "valid").returns<KeyRow[]>(),
     admin.from("system_api_keys").select("id, provider_id, label, key_hint").is("deleted_at", null).eq("is_active", true).eq("test_status", "valid").returns<KeyRow[]>(),
     supabase.from("providers").select("id, name, slug, enabled").eq("enabled", true).returns<Provider[]>(),
+    supabase.from("provider_models").select("provider_id, model_key, display_name, kind").eq("enabled", true).in("kind", ["text", "multimodal"]).order("display_name").returns<Model[]>(),
   ]);
   const providerById = new Map((providers ?? []).map((provider) => [provider.id, provider]));
   const keyOptions = [
@@ -52,7 +55,7 @@ export default async function SearchConsolePage({ searchParams }: { searchParams
 
         <section className="panel mt-6 overflow-hidden"><div className="border-b border-line p-6"><h2 className="text-xl font-black">ویژگی‌های سایت</h2><p className="mt-2 text-sm text-muted">فقط ویژگی‌های انتخاب‌شده در همگام‌سازی داده پردازش می‌شوند.</p></div>{(properties ?? []).length ? <div className="divide-y divide-line">{(properties ?? []).map((property) => <form action={togglePropertyAction} className="flex flex-wrap items-center justify-between gap-4 p-5" key={property.id}><div><p className="font-bold" dir="ltr">{property.site_url}</p><p className="mt-1 text-xs text-muted">{property.permission_level}{property.last_synced_at ? ` · آخرین داده: ${new Intl.DateTimeFormat("fa-IR").format(new Date(property.last_synced_at))}` : ""}</p></div><input name="propertyId" type="hidden" value={property.id} /><input name="selected" type="hidden" value={String(!property.selected)} /><button className={property.selected ? "danger-button text-sm" : "secondary-button text-sm"} type="submit">{property.selected ? "حذف از همگام‌سازی" : "افزودن به همگام‌سازی"}</button></form>)}</div> : <p className="p-6 text-sm text-muted">برای دریافت فهرست سایت‌ها، همگام‌سازی را اجرا کنید.</p>}</section>
 
-        {(properties ?? []).some((property) => property.last_synced_at) && keyOptions.length ? <section className="panel mt-6 p-6"><h2 className="text-xl font-black">ساخت پیشنهاد عنوان</h2><p className="mt-2 text-sm text-muted">ابتدا فرصت‌ها با فرمول عددی رتبه‌بندی و سپس دادهٔ فشرده برای ساخت عنوان به مدل فرستاده می‌شود.</p><form action={suggestTitlesAction} className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]"><select className="field" name="propertyId" required>{(properties ?? []).filter((property) => property.selected).map((property) => <option key={property.id} value={property.id}>{property.site_url}</option>)}</select><select className="field" name="connectionId" required>{keyOptions.map((key) => <option key={key.connectionId} value={key.connectionId}>{key.provider.name} · {key.source === "system" ? "سراسری سامانه" : key.label}</option>)}</select><input className="field" dir="ltr" name="model" placeholder="شناسهٔ مدل متن" required /><button className="primary-button" type="submit">پیشنهاد عنوان</button></form></section> : null}
+        {(properties ?? []).some((property) => property.last_synced_at) && keyOptions.length ? <section className="content-card mt-6 p-6"><div className="form-card-title"><span className="bg-violet-100 text-violet-700"><AppIcon name="sparkles" /></span><div><small>پیشنهاد هوشمند</small><h2>ساخت پیشنهاد عنوان</h2><p>فرصت‌ها از دادهٔ واقعی رتبه‌بندی می‌شوند و مدل انتخابی برای آن‌ها عنوان می‌سازد.</p></div></div><SuggestTitleForm keys={keyOptions} models={models ?? []} properties={(properties ?? []).filter((property) => property.selected)} /></section> : null}
 
         {(suggestions ?? []).length ? <section className="panel mt-6 overflow-hidden"><div className="border-b border-line p-6"><h2 className="text-xl font-black">پیشنهادها</h2></div><div className="divide-y divide-line">{(suggestions ?? []).map((suggestion) => <article className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-center" key={suggestion.id}><div><h3 className="font-black">{suggestion.suggested_title}</h3><p className="mt-2 text-sm text-muted">عبارت: {suggestion.source_query}</p><p className="mt-1 text-xs text-muted">نمایش: {new Intl.NumberFormat("fa-IR").format(suggestion.evidence.impressions ?? 0)} · نرخ کلیک: {new Intl.NumberFormat("fa-IR", { style: "percent", maximumFractionDigits: 1 }).format(suggestion.evidence.ctr ?? 0)} · جایگاه: {new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 1 }).format(suggestion.evidence.position ?? 0)}</p></div>{suggestion.status === "pending" ? <div className="flex gap-2"><form action={updateSuggestionAction}><input name="suggestionId" type="hidden" value={suggestion.id} /><input name="status" type="hidden" value="accepted" /><button className="primary-button text-sm" type="submit">انتقال به تولید</button></form><form action={updateSuggestionAction}><input name="suggestionId" type="hidden" value={suggestion.id} /><input name="status" type="hidden" value="rejected" /><button className="danger-button text-sm" type="submit">رد</button></form></div> : <span className="text-sm font-bold text-muted">{suggestion.status === "accepted" ? "پذیرفته‌شده" : "ردشده"}</span>}</article>)}</div></section> : null}
       </>}

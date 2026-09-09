@@ -66,7 +66,10 @@ export async function suggestTitlesAction(formData: FormData) {
     const stored = source === "system" ? await loadSystemApiKey(keyId) : await loadUserApiKey(profile.id, keyId);
     const { data: provider } = await admin.from("providers").select("slug, enabled").eq("id", stored.providerId).single<{ slug: string; enabled: boolean }>();
     if (!provider?.enabled) throw new Error("ارائه‌دهنده غیرفعال است.");
-    const result = await getTextProviderAdapter(provider.slug).generateText({ apiKey: stored.apiKey, model: String(formData.get("model") ?? ""), prompt: `برای هر ردیف زیر یک عنوان فارسی روشن، دقیق و جذاب پیشنهاد بده. فقط آرایه JSON رشته‌ها و دقیقاً به همان ترتیب برگردان:\n${JSON.stringify(opportunities.map(({ query, page, impressions, ctr, position }) => ({ query, page, impressions, ctr, position })))}`, maxOutputTokens: 1200 });
+    const modelKey = z.string().trim().min(2).max(200).parse(formData.get("model"));
+    const { data: model } = await admin.from("provider_models").select("id").eq("provider_id", stored.providerId).eq("model_key", modelKey).eq("enabled", true).in("kind", ["text", "multimodal"]).maybeSingle<{ id: string }>();
+    if (!model) throw new Error("مدل انتخاب‌شده برای این اتصال فعال نیست.");
+    const result = await getTextProviderAdapter(provider.slug).generateText({ apiKey: stored.apiKey, model: modelKey, prompt: `برای هر ردیف زیر یک عنوان فارسی روشن، دقیق و جذاب پیشنهاد بده. فقط آرایه JSON رشته‌ها و دقیقاً به همان ترتیب برگردان:\n${JSON.stringify(opportunities.map(({ query, page, impressions, ctr, position }) => ({ query, page, impressions, ctr, position })))}`, maxOutputTokens: 1200 });
     const cleaned = result.text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
     const parsed = JSON.parse(cleaned);
     if (Array.isArray(parsed)) titles = parsed.map(String);

@@ -43,6 +43,18 @@ async function resolveCredential(userId: string, connectionId: string) {
   return { key, provider, source };
 }
 
+async function validateModel(providerId: string, modelKey: string, kind: "text" | "image") {
+  const admin = createAdminClient();
+  const { data: model } = await admin.from("provider_models")
+    .select("id")
+    .eq("provider_id", providerId)
+    .eq("model_key", modelKey)
+    .eq("enabled", true)
+    .in("kind", kind === "text" ? ["text", "multimodal"] : ["image", "multimodal"])
+    .maybeSingle<{ id: string }>();
+  if (!model) throw new Error(kind === "text" ? "مدل نگارش انتخاب‌شده فعال نیست." : "مدل تصویر انتخاب‌شده فعال نیست.");
+}
+
 export async function createContentAction(_state: CreateContentState, formData: FormData): Promise<CreateContentState> {
   const parsed = schema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
@@ -73,9 +85,11 @@ export async function createContentAction(_state: CreateContentState, formData: 
   try {
     textConnection = await resolveCredential(profile.id, parsed.data.textConnectionId);
     getTextProviderAdapter(textConnection.provider.slug);
+    await validateModel(textConnection.provider.id, parsed.data.textModel, "text");
     if (parsed.data.imageCount && parsed.data.imageConnectionId) {
       imageConnection = await resolveCredential(profile.id, parsed.data.imageConnectionId);
       getImageProviderAdapter(imageConnection.provider.slug);
+      await validateModel(imageConnection.provider.id, parsed.data.imageModel, "image");
     }
   } catch (error) {
     return { status: "error", message: error instanceof Error ? error.message : "اتصال انتخاب‌شده معتبر نیست." };

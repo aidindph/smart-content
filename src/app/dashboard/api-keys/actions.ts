@@ -84,8 +84,15 @@ export async function saveApiKeyAction(
     }
   }
 
-  const connection = await getProviderAdapter(provider.slug).validateKey(parsed.data.apiKey);
+  const adapter = getProviderAdapter(provider.slug);
+  const connection = await adapter.validateKey(parsed.data.apiKey);
   if (!connection.ok) return { status: "error", message: connection.message };
+  let availableModels;
+  try {
+    availableModels = (await adapter.listModels(parsed.data.apiKey)).slice(0, 200);
+  } catch {
+    return { status: "error", message: "کلید معتبر است، اما دریافت فهرست مدل‌ها انجام نشد؛ دوباره تلاش کنید." };
+  }
 
   const keyId = existingId ?? randomUUID();
   const encrypted = encryptSecret(parsed.data.apiKey, apiKeyContext(profile.id, keyId, provider.id));
@@ -113,7 +120,19 @@ export async function saveApiKeyAction(
     };
   }
 
+  if (availableModels.length) {
+    await admin.from("provider_models").upsert(availableModels.map((model) => ({
+      provider_id: provider.id,
+      model_key: model.id,
+      display_name: model.name,
+      kind: model.kind,
+      enabled: true,
+    })), { onConflict: "provider_id,model_key" });
+  }
+
   revalidatePath("/dashboard/api-keys");
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/content/new");
   return {
     status: "success",
     message: existingId ? "کلید تازه آزمایش و جایگزین شد." : "کلید آزمایش و به‌صورت رمزنگاری‌شده ذخیره شد.",

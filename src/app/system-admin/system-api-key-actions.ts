@@ -36,8 +36,15 @@ export async function saveSystemApiKeyAction(
     .eq("id", parsed.data.providerId).single<{ id: string; slug: string; name: string }>();
   if (!provider) return { status: "error", message: "ارائه‌دهنده پیدا نشد." };
 
-  const test = await getProviderAdapter(provider.slug).validateKey(parsed.data.apiKey);
+  const adapter = getProviderAdapter(provider.slug);
+  const test = await adapter.validateKey(parsed.data.apiKey);
   if (!test.ok) return { status: "error", message: test.message };
+  let availableModels;
+  try {
+    availableModels = (await adapter.listModels(parsed.data.apiKey)).slice(0, 200);
+  } catch {
+    return { status: "error", message: "کلید معتبر است، اما دریافت فهرست مدل‌ها انجام نشد؛ دوباره تلاش کنید." };
+  }
 
   const { data: existing } = await admin.from("system_api_keys").select("id")
     .eq("provider_id", provider.id).is("deleted_at", null).maybeSingle<{ id: string }>();
@@ -61,11 +68,20 @@ export async function saveSystemApiKeyAction(
     : await admin.from("system_api_keys").insert({ id: keyId, provider_id: provider.id, created_by: profile.id, ...values });
   if (result.error) return { status: "error", message: "ذخیرهٔ امن اتصال سراسری انجام نشد." };
 
+  if (availableModels.length) {
+    await admin.from("provider_models").upsert(availableModels.map((model) => ({
+      provider_id: provider.id,
+      model_key: model.id,
+      display_name: model.name,
+      kind: model.kind,
+      enabled: true,
+    })), { onConflict: "provider_id,model_key" });
+  }
   await admin.from("providers").update({ enabled: true }).eq("id", provider.id);
   revalidatePath("/system-admin");
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/content/new");
-  return { status: "success", message: `${provider.name} متصل و برای همهٔ کاربران فعال شد.` };
+  return { status: "success", message: `${provider.name} متصل شد و ${new Intl.NumberFormat("fa-IR").format(availableModels.length)} مدل برای همهٔ کاربران آماده شد.` };
 }
 
 export async function toggleSystemApiKeyAction(formData: FormData) {

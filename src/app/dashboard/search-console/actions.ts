@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -7,9 +8,34 @@ import { requireUser } from "@/lib/auth/guards";
 import { getTextProviderAdapter } from "@/lib/providers/registry";
 import { syncSearchConsoleForUser } from "@/lib/search-console/sync";
 import { loadSystemApiKey, loadUserApiKey } from "@/lib/security/api-key-vault";
+import { encryptSecret } from "@/lib/security/encryption";
+import { googleApi, googleTokenContext, parseServiceAccountJson, serviceAccountAccessToken } from "@/lib/search-console/google";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const uuid = z.string().uuid();
+
+export type SearchConsoleConnectionState = { status: "idle" | "error"; message: string };
+
+export async function saveServiceAccountAction(_state: SearchConsoleConnectionState, formData: FormData): Promise<SearchConsoleConnectionState> {
+  const raw = z.string().trim().min(100).max(20_000).safeParse(formData.get("serviceAccountJson"));
+  if (!raw.success) return { status: "error", message: "محتوای فایل جیسون کامل نیست." };
+  const { profile } = await requireUser();
+  try {
+    const credentials = parseServiceAccountJson(raw.data);
+    const accessToken = await serviceAccountAccessToken(credentials);
+    await googleApi("https://www.googleapis.com/webmasters/v3/sites", accessToken);
+    const admin = createAdminClient();
+    const { data: existing } = await admin.from("gsc_connections").select("id").eq("user_id", profile.id).maybeSingle<{ id: string }>();
+    const connectionId = existing?.id ?? randomUUID();
+    const encrypted = encryptSecret(JSON.stringify(credentials), googleTokenContext(profile.id, connectionId, "service-account"));
+    const { error } = await admin.from("gsc_connections").upsert({ id: connectionId, user_id: profile.id, google_email: credentials.client_email, auth_type: "service_account", encrypted_service_account: encrypted.ciphertext, service_account_iv: encrypted.iv, service_account_tag: encrypted.tag, service_account_key_version: encrypted.keyVersion, status: "active", token_expires_at: null }, { onConflict: "user_id" });
+    if (error) throw error;
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "اتصال حساب خدماتی انجام نشد." };
+  }
+  revalidatePath("/dashboard/search-console");
+  redirect("/dashboard/search-console?notice=connected");
+}
 
 export async function syncSearchConsoleAction() {
   const { profile } = await requireUser();

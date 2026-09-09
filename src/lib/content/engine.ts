@@ -5,6 +5,7 @@ import { getImageProviderAdapter, getTextProviderAdapter } from "@/lib/providers
 import { loadSystemApiKey, loadUserApiKey } from "@/lib/security/api-key-vault";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildArticlePrompt, buildImagePrompt, extractArticleTitle } from "./prompt";
+import { analyzeSeo, buildImageSuggestions, markdownToArticleHtml, type KeywordTarget } from "./article-output";
 
 type Job = {
   id: string; request_id: string; user_id: string; attempt: number; max_attempts: number; cancel_requested: boolean;
@@ -13,6 +14,7 @@ type Request = {
   id: string; user_id: string; topic: string; keywords: string[]; language: string; audience: string; tone: string;
   target_words: number; text_api_key_id: string | null; text_system_api_key_id: string | null; text_provider_slug: string; text_model: string;
   image_api_key_id: string | null; image_system_api_key_id: string | null; image_provider_slug: string | null; image_model: string | null; image_count: number;
+  keyword_targets: KeywordTarget[]; seo_settings: { search_intent?: string; content_type?: string; point_of_view?: string; faq_count?: number; call_to_action?: string; forbidden_terms?: string[]; internal_links?: string[] }; content_brief: string | null; required_headings: string[]; image_topics: string[];
 };
 type Step = { id: string; kind: "article" | "hero_image" | "inline_image"; position: number };
 type PricingUnit = "input_million_tokens" | "output_million_tokens" | "image" | "request";
@@ -92,10 +94,13 @@ export async function processGenerationJob(jobId: string, userId: string) {
     const textResult = await getTextProviderAdapter(textProvider.slug).generateText({
       apiKey: textSecret.apiKey,
       model: request.text_model,
-      prompt: buildArticlePrompt({ topic: request.topic, keywords: request.keywords, language: request.language, audience: request.audience, tone: request.tone, targetWords: request.target_words }),
+      prompt: buildArticlePrompt({ topic: request.topic, keywords: request.keywords, language: request.language, audience: request.audience, tone: request.tone, targetWords: request.target_words, keywordTargets: request.keyword_targets, searchIntent: request.seo_settings.search_intent, contentType: request.seo_settings.content_type, pointOfView: request.seo_settings.point_of_view, faqCount: request.seo_settings.faq_count, requiredHeadings: request.required_headings, contentBrief: request.content_brief ?? undefined, callToAction: request.seo_settings.call_to_action, forbiddenTerms: request.seo_settings.forbidden_terms, internalLinks: request.seo_settings.internal_links }),
       maxOutputTokens: Math.min(12_000, Math.max(2_000, Math.ceil(request.target_words * 2.2))),
     });
     const title = extractArticleTitle(textResult.text, request.topic);
+    const outputHtml = markdownToArticleHtml(textResult.text, request.language);
+    const seoAnalysis = analyzeSeo(textResult.text, request.keyword_targets, request.target_words);
+    const imageSuggestions = buildImageSuggestions(textResult.text, request.image_topics, request.image_count || Math.min(3, Math.max(1, request.image_topics.length)));
     const textPrices = await pricingFor(textProvider.id, request.text_model);
     const inputQuantity = textResult.inputTokens / 1_000_000;
     const outputQuantity = textResult.outputTokens / 1_000_000;
@@ -103,7 +108,7 @@ export async function processGenerationJob(jobId: string, userId: string) {
       + outputQuantity * (textPrices.get("output_million_tokens") ?? 0);
     await Promise.all([
       admin.from("generation_steps").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", articleStep.id),
-      admin.from("generation_jobs").update({ progress: request.image_count ? 55 : 100, current_step: request.image_count ? "ساخت تصاویر" : "تکمیل‌شده", output_title: title, output_markdown: textResult.text, input_tokens: textResult.inputTokens, output_tokens: textResult.outputTokens, estimated_cost_usd: estimatedCost }).eq("id", job.id),
+      admin.from("generation_jobs").update({ progress: request.image_count ? 55 : 100, current_step: request.image_count ? "ساخت تصاویر" : "تکمیل‌شده", output_title: title, output_markdown: textResult.text, output_html: outputHtml, seo_analysis: seoAnalysis, image_suggestions: imageSuggestions, input_tokens: textResult.inputTokens, output_tokens: textResult.outputTokens, estimated_cost_usd: estimatedCost }).eq("id", job.id),
       admin.from("usage_ledger").insert([
         { job_id: job.id, user_id: userId, provider_slug: textProvider.slug, model_key: request.text_model, unit: "input_million_tokens", quantity: inputQuantity, estimated_cost_usd: inputQuantity * (textPrices.get("input_million_tokens") ?? 0), provider_request_id: textResult.providerRequestId ?? null },
         { job_id: job.id, user_id: userId, provider_slug: textProvider.slug, model_key: request.text_model, unit: "output_million_tokens", quantity: outputQuantity, estimated_cost_usd: outputQuantity * (textPrices.get("output_million_tokens") ?? 0), provider_request_id: textResult.providerRequestId ?? null },
@@ -135,12 +140,13 @@ export async function processGenerationJob(jobId: string, userId: string) {
 
         const step = imageSteps[index];
         await admin.from("generation_steps").update({ status: "running", attempt: activeJob.attempt, started_at: new Date().toISOString() }).eq("id", step.id);
-        const image = await adapter.generateImage({ apiKey: imageSecret.apiKey, model: request.image_model, prompt: buildImagePrompt(request.topic, title, index), aspectRatio: index === 0 ? "16:9" : "1:1" });
+        const imageTitle = imageSuggestions[index]?.title ?? title;
+        const image = await adapter.generateImage({ apiKey: imageSecret.apiKey, model: request.image_model, prompt: buildImagePrompt(request.topic, imageTitle, index), aspectRatio: index === 0 ? "16:9" : "1:1" });
         const extension = image.mimeType === "image/jpeg" ? "jpg" : image.mimeType === "image/webp" ? "webp" : "png";
         const storagePath = `${userId}/${job.id}/${step.position}-${step.id}.${extension}`;
         const { error: uploadError } = await admin.storage.from("content-assets").upload(storagePath, image.bytes, { contentType: image.mimeType, upsert: true });
         if (uploadError) throw new Error("ذخیرهٔ تصویر تولیدشده انجام نشد.");
-        const altText = index === 0 ? `تصویر اصلی مقالهٔ ${title}` : `تصویر مرتبط با ${request.topic}`;
+        const altText = imageSuggestions[index]?.altText ?? (index === 0 ? `تصویر اصلی مقالهٔ ${title}` : `تصویر مرتبط با ${request.topic}`);
         const imageCost = imagePrices.get("image") ?? 0;
         estimatedCost += imageCost;
         await Promise.all([

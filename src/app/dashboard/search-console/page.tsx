@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { AppIcon } from "@/components/app-icon";
 import { requireUser } from "@/lib/auth/guards";
-import { getGoogleOAuthConfig } from "@/lib/search-console/google";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { disconnectSearchConsoleAction, syncSearchConsoleAction, togglePropertyAction, updateSuggestionAction } from "./actions";
 import { SuggestTitleForm } from "./suggest-title-form";
+import { ServiceAccountForm } from "./service-account-form";
 
 export const metadata: Metadata = { title: "سرچ کنسول" };
-type Connection = { id: string; google_email: string | null; status: string; last_synced_at: string | null };
+type Connection = { id: string; google_email: string | null; auth_type: "oauth" | "service_account"; status: string; last_synced_at: string | null };
 type Property = { id: string; site_url: string; permission_level: string; selected: boolean; last_synced_at: string | null };
 type Suggestion = { id: string; property_id: string; source_query: string; source_page: string; suggested_title: string; evidence: { clicks?: number; impressions?: number; ctr?: number; position?: number }; score: number; status: "pending" | "accepted" | "rejected" };
 type Metric = { clicks: number; impressions: number };
@@ -23,7 +23,7 @@ export default async function SearchConsolePage({ searchParams }: { searchParams
   const admin = createAdminClient();
   const query = await searchParams;
   const [{ data: connection }, { data: properties }, { data: suggestions }, { data: metrics }, { data: keys }, { data: systemKeys }, { data: providers }, { data: models }] = await Promise.all([
-    supabase.from("gsc_connections").select("id, google_email, status, last_synced_at").maybeSingle<Connection>(),
+    supabase.from("gsc_connections").select("id, google_email, auth_type, status, last_synced_at").maybeSingle<Connection>(),
     supabase.from("gsc_properties").select("id, site_url, permission_level, selected, last_synced_at").order("site_url").returns<Property[]>(),
     supabase.from("title_suggestions").select("id, property_id, source_query, source_page, suggested_title, evidence, score, status").order("score", { ascending: false }).limit(50).returns<Suggestion[]>(),
     supabase.from("gsc_metrics_daily").select("clicks, impressions").limit(10000).returns<Metric[]>(),
@@ -41,15 +41,14 @@ export default async function SearchConsolePage({ searchParams }: { searchParams
   const impressions = (metrics ?? []).reduce((sum, metric) => sum + Number(metric.impressions), 0);
   const noticeKey = typeof query.notice === "string" ? query.notice : "";
   const errorKey = typeof query.error === "string" ? query.error : "";
-  const configured = Boolean(getGoogleOAuthConfig());
 
   return (
     <div className="mx-auto max-w-6xl">
       <header className="page-heading"><div><span className="page-kicker"><AppIcon name="search" /> فرصت‌های محتوایی</span><h1>گوگل سرچ کنسول</h1><p>عملکرد جست‌وجو را همگام کنید و با تکیه بر نمایش، نرخ کلیک و جایگاه واقعی، عنوان تازه بسازید.</p></div></header>
       {notices[noticeKey] || errors[errorKey] ? <p className={`mt-6 rounded-xl px-4 py-3 text-sm ${errors[errorKey] ? "bg-red-50 text-danger dark:bg-red-950/30" : "bg-brand-soft text-brand-strong"}`}>{errors[errorKey] ?? notices[noticeKey]}</p> : null}
 
-      {!connection ? <section className="panel mt-8 p-7"><h2 className="text-xl font-black">اتصال حساب گوگل</h2><p className="mt-2 text-sm leading-6 text-muted">دسترسی فقط خواندنی است و توکن‌ها مانند کلیدهای هوش مصنوعی در سرور رمزنگاری می‌شوند.</p>{configured ? <a className="primary-button mt-5" href="/api/google/connect">اتصال سرچ کنسول</a> : <p className="mt-5 rounded-xl bg-surface-subtle p-4 text-sm text-muted">اتصال گوگل هنوز توسط مدیر سامانه فعال نشده است.</p>}</section> : <>
-        <section className="panel mt-8 p-6"><div className="flex flex-wrap items-center justify-between gap-5"><div><h2 className="text-xl font-black">حساب متصل</h2><p className="mt-2 text-sm text-muted" dir="ltr">{connection.google_email}</p>{connection.last_synced_at ? <p className="mt-1 text-xs text-muted">آخرین همگام‌سازی: {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(connection.last_synced_at))}</p> : null}</div><div className="flex gap-2"><form action={syncSearchConsoleAction}><button className="primary-button" type="submit">همگام‌سازی</button></form><form action={disconnectSearchConsoleAction}><button className="danger-button" type="submit">قطع اتصال</button></form></div></div></section>
+      {!connection ? <section className="content-card mt-8 p-7"><div className="form-card-title"><span className="bg-cyan-100 text-cyan-700"><AppIcon name="search" /></span><div><small>اتصال شخصی و مستقل</small><h2>اتصال سرچ کنسول با فایل جیسون</h2><p>حساب خدماتی پروژهٔ گوگل خودتان را وصل کنید؛ این اتصال به تنظیمات مدیر سامانه وابسته نیست.</p></div></div><ol className="gsc-steps"><li><b>۱</b><span>رابط برنامه‌نویسی سرچ کنسول را در پروژهٔ گوگل فعال کنید.</span></li><li><b>۲</b><span>یک حساب خدماتی و کلید جیسون بسازید.</span></li><li><b>۳</b><span>ایمیل حساب خدماتی را در تنظیمات کاربران سرچ کنسول سایت اضافه کنید.</span></li></ol><ServiceAccountForm /></section> : <>
+        <section className="panel mt-8 p-6"><div className="flex flex-wrap items-center justify-between gap-5"><div><span className="job-status status-completed">اتصال فعال</span><h2 className="mt-3 text-xl font-black">حساب سرچ کنسول شما</h2><p className="mt-2 text-sm text-muted" dir="ltr">{connection.google_email}</p><p className="mt-1 text-xs text-muted">روش اتصال: {connection.auth_type === "service_account" ? "حساب خدماتی شخصی" : "ورود گوگل"}</p>{connection.last_synced_at ? <p className="mt-1 text-xs text-muted">آخرین همگام‌سازی: {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(connection.last_synced_at))}</p> : null}</div><div className="flex gap-2"><form action={syncSearchConsoleAction}><button className="primary-button" type="submit">همگام‌سازی</button></form><form action={disconnectSearchConsoleAction}><button className="danger-button" type="submit">قطع اتصال</button></form></div></div></section>
 
         <section className="mt-6 grid gap-4 sm:grid-cols-3"><article className="panel p-5"><p className="text-sm text-muted">ویژگی‌ها</p><p className="mt-3 text-3xl font-black">{new Intl.NumberFormat("fa-IR").format(properties?.length ?? 0)}</p></article><article className="panel p-5"><p className="text-sm text-muted">کلیک در دادهٔ ذخیره‌شده</p><p className="mt-3 text-3xl font-black">{new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 0 }).format(clicks)}</p></article><article className="panel p-5"><p className="text-sm text-muted">نمایش در دادهٔ ذخیره‌شده</p><p className="mt-3 text-3xl font-black">{new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 0 }).format(impressions)}</p></article></section>
 

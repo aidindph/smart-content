@@ -135,12 +135,14 @@ export type Database = {
           tone: "professional" | "friendly" | "persuasive" | "educational" | "creative"; target_words: number;
           text_api_key_id: string | null; text_system_api_key_id: string | null; text_provider_slug: string; text_model: string; image_api_key_id: string | null; image_system_api_key_id: string | null;
           image_provider_slug: string | null; image_model: string | null; image_count: number; settings_snapshot: Json; created_at: string;
+          keyword_targets: Json; seo_settings: Json; content_brief: string | null; required_headings: string[]; image_topics: string[];
         };
         Insert: {
           id?: string; user_id: string; topic: string; keywords?: string[]; language?: string; audience: string;
           tone?: "professional" | "friendly" | "persuasive" | "educational" | "creative"; target_words: number;
           text_api_key_id?: string | null; text_system_api_key_id?: string | null; text_provider_slug: string; text_model: string; image_api_key_id?: string | null; image_system_api_key_id?: string | null;
           image_provider_slug?: string | null; image_model?: string | null; image_count?: number; settings_snapshot?: Json; created_at?: string;
+          keyword_targets?: Json; seo_settings?: Json; content_brief?: string | null; required_headings?: string[]; image_topics?: string[];
         };
         Update: Partial<Database["public"]["Tables"]["content_requests"]["Insert"]>;
         Relationships: [];
@@ -151,6 +153,7 @@ export type Database = {
           progress: number; current_step: string | null; attempt: number; max_attempts: number; cancel_requested: boolean;
           locked_at: string | null; started_at: string | null; completed_at: string | null; error_code: string | null;
           error_message: string | null; output_title: string | null; output_markdown: string | null; input_tokens: number;
+          output_html: string | null; seo_analysis: Json; image_suggestions: Json;
           output_tokens: number; estimated_cost_usd: number | null; idempotency_key: string; created_at: string; updated_at: string;
         };
         Insert: {
@@ -158,6 +161,7 @@ export type Database = {
           progress?: number; current_step?: string | null; attempt?: number; max_attempts?: number; cancel_requested?: boolean;
           locked_at?: string | null; started_at?: string | null; completed_at?: string | null; error_code?: string | null;
           error_message?: string | null; output_title?: string | null; output_markdown?: string | null; input_tokens?: number;
+          output_html?: string | null; seo_analysis?: Json; image_suggestions?: Json;
           output_tokens?: number; estimated_cost_usd?: number | null; idempotency_key: string; created_at?: string; updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["generation_jobs"]["Insert"]>;
@@ -198,8 +202,8 @@ export type Database = {
         Relationships: [];
       };
       gsc_connections: {
-        Row: { id: string; user_id: string; google_email: string | null; encrypted_access_token: string; access_iv: string; access_tag: string; access_key_version: string; encrypted_refresh_token: string; refresh_iv: string; refresh_tag: string; refresh_key_version: string; token_expires_at: string; status: "active" | "expired" | "revoked"; last_synced_at: string | null; created_at: string; updated_at: string };
-        Insert: { id?: string; user_id: string; google_email?: string | null; encrypted_access_token: string; access_iv: string; access_tag: string; access_key_version: string; encrypted_refresh_token: string; refresh_iv: string; refresh_tag: string; refresh_key_version: string; token_expires_at: string; status?: "active" | "expired" | "revoked"; last_synced_at?: string | null; created_at?: string; updated_at?: string };
+        Row: { id: string; user_id: string; google_email: string | null; auth_type: "oauth" | "service_account"; encrypted_access_token: string | null; access_iv: string | null; access_tag: string | null; access_key_version: string | null; encrypted_refresh_token: string | null; refresh_iv: string | null; refresh_tag: string | null; refresh_key_version: string | null; token_expires_at: string | null; encrypted_service_account: string | null; service_account_iv: string | null; service_account_tag: string | null; service_account_key_version: string | null; status: "active" | "expired" | "revoked"; last_synced_at: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; user_id: string; google_email?: string | null; auth_type?: "oauth" | "service_account"; encrypted_access_token?: string | null; access_iv?: string | null; access_tag?: string | null; access_key_version?: string | null; encrypted_refresh_token?: string | null; refresh_iv?: string | null; refresh_tag?: string | null; refresh_key_version?: string | null; token_expires_at?: string | null; encrypted_service_account?: string | null; service_account_iv?: string | null; service_account_tag?: string | null; service_account_key_version?: string | null; status?: "active" | "expired" | "revoked"; last_synced_at?: string | null; created_at?: string; updated_at?: string };
         Update: Partial<Database["public"]["Tables"]["gsc_connections"]["Insert"]>;
         Relationships: [];
       };

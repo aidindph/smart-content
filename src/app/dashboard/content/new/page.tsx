@@ -40,7 +40,7 @@ export default async function NewContentPage({ searchParams }: { searchParams: P
   return (
     <div className="mx-auto max-w-5xl">
       <header className="page-heading">
-        <div><span className="page-kicker"><AppIcon name="sparkles" /> موتور تولید</span><h1>محتوای تازه بسازید</h1><p>در سه مرحله موضوع، موتور متن و تصویر را مشخص کنید؛ بقیهٔ کار را سامانه انجام می‌دهد.</p></div>
+        <div><span className="page-kicker"><AppIcon name="sparkles" /> استودیوی تولید محتوا</span><h1>محتوای تازه بسازید</h1><p>راهبرد، سئو، ساختار و تصاویر را دقیق مشخص کنید و مقالهٔ طبیعی همراه کد آمادهٔ انتشار تحویل بگیرید.</p></div>
         <Link className="soft-button" href="/dashboard/history"><AppIcon className="h-4 w-4" name="history" /> مشاهدهٔ تاریخچه</Link>
       </header>
       {options.length ? <ContentRequestForm idempotencyKey={randomUUID()} initialKeywords={initialKeywords} initialTopic={initialTopic} keys={options} /> : (

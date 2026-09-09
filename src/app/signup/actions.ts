@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { isValidInvitation } from "@/lib/auth/invitations";
+import { consumeAuthRateLimit } from "@/lib/auth/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 import { isRegistrationEnabled } from "@/lib/settings/registration";
 
@@ -34,6 +35,10 @@ export async function signupAction(
 
   if (!parsed.success) {
     return { success: false, message: parsed.error.issues[0]?.message ?? "اطلاعات ثبت‌نام معتبر نیست." };
+  }
+
+  if (!(await consumeAuthRateLimit("signup", parsed.data.email))) {
+    return { success: false, message: "تلاش‌های ثبت‌نام بیش از حد است؛ یک ساعت بعد دوباره امتحان کنید." };
   }
 
   const registrationOpen = await isRegistrationEnabled();

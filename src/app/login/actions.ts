@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { hasSupabaseConfig } from "@/lib/supabase/config";
+import { consumeAuthRateLimit } from "@/lib/auth/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 
 export type LoginState = { message: string | null };
@@ -27,6 +28,10 @@ export async function loginAction(
 
   if (!parsed.success) {
     return { message: parsed.error.issues[0]?.message ?? "اطلاعات ورود معتبر نیست." };
+  }
+
+  if (!(await consumeAuthRateLimit("login", parsed.data.email))) {
+    return { message: "تلاش‌های ورود بیش از حد است؛ پانزده دقیقه بعد دوباره امتحان کنید." };
   }
 
   const supabase = await createClient();

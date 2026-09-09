@@ -33,5 +33,8 @@ jobs:
       - name: بررسی نوع‌ها
         run: pnpm typecheck
 
+      - name: آزمون‌ها
+        run: pnpm test
+
       - name: ساخت برنامه
         run: pnpm build

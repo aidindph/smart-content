@@ -149,6 +149,12 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["usage_ledger"]["Insert"]>;
         Relationships: [];
       };
+      user_invitations: {
+        Row: { id: string; email: string; role: "customer" | "system_admin"; token_hash: string; invited_by: string | null; expires_at: string; accepted_at: string | null; accepted_by: string | null; revoked_at: string | null; created_at: string };
+        Insert: { id?: string; email: string; role?: "customer" | "system_admin"; token_hash: string; invited_by?: string | null; expires_at: string; accepted_at?: string | null; accepted_by?: string | null; revoked_at?: string | null; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["user_invitations"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

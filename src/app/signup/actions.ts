@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { isValidInvitation } from "@/lib/auth/invitations";
 import { createClient } from "@/lib/supabase/server";
 import { isRegistrationEnabled } from "@/lib/settings/registration";
 
@@ -12,6 +13,7 @@ const signupSchema = z
     email: z.string().trim().email("نشانی ایمیل معتبر وارد کنید."),
     password: z.string().min(8, "رمز عبور باید دست‌کم ۸ نویسه باشد."),
     passwordConfirmation: z.string(),
+    inviteToken: z.string().max(500).optional().default(""),
   })
   .refine((value) => value.password === value.passwordConfirmation, {
     message: "تکرار رمز عبور یکسان نیست.",
@@ -22,26 +24,28 @@ export async function signupAction(
   _previousState: SignupState,
   formData: FormData,
 ): Promise<SignupState> {
-  if (!(await isRegistrationEnabled())) {
-    return { success: false, message: "ثبت‌نام عمومی در حال حاضر بسته است." };
-  }
-
   const parsed = signupSchema.safeParse({
     displayName: formData.get("displayName"),
     email: formData.get("email"),
     password: formData.get("password"),
     passwordConfirmation: formData.get("passwordConfirmation"),
+    inviteToken: formData.get("inviteToken") ?? "",
   });
 
   if (!parsed.success) {
     return { success: false, message: parsed.error.issues[0]?.message ?? "اطلاعات ثبت‌نام معتبر نیست." };
   }
 
+  const registrationOpen = await isRegistrationEnabled();
+  if (!registrationOpen && !(await isValidInvitation(parsed.data.email, parsed.data.inviteToken))) {
+    return { success: false, message: "دعوت‌نامه معتبر نیست یا منقضی شده است." };
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
-    options: { data: { display_name: parsed.data.displayName } },
+    options: { data: { display_name: parsed.data.displayName, invite_token: parsed.data.inviteToken || undefined } },
   });
 
   if (error) return { success: false, message: "ساخت حساب انجام نشد. ممکن است این ایمیل قبلاً ثبت شده باشد." };

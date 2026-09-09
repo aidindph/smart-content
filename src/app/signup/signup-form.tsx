@@ -6,7 +6,7 @@ import { signupAction, type SignupState } from "./actions";
 
 const initialState: SignupState = { message: null, success: false };
 
-export function SignupForm() {
+export function SignupForm({ invitationEmail, invitationToken }: { invitationEmail?: string; invitationToken?: string }) {
   const [state, formAction, pending] = useActionState(signupAction, initialState);
 
   return (
@@ -17,8 +17,9 @@ export function SignupForm() {
       </div>
       <div>
         <label className="mb-2 block text-sm font-bold" htmlFor="email">ایمیل</label>
-        <input className="field" id="email" name="email" type="email" autoComplete="email" dir="ltr" required />
+        <input className="field" defaultValue={invitationEmail} id="email" name="email" readOnly={Boolean(invitationEmail)} type="email" autoComplete="email" dir="ltr" required />
       </div>
+      <input name="inviteToken" type="hidden" value={invitationToken ?? ""} />
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="mb-2 block text-sm font-bold" htmlFor="password">رمز عبور</label>

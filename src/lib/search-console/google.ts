@@ -5,6 +5,9 @@ import { decryptSecret, encryptSecret } from "@/lib/security/encryption";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export type GoogleTokenResponse = { access_token: string; expires_in: number; refresh_token?: string; token_type: string };
+export class SearchConsoleError extends Error {
+  constructor(public readonly code: string, message: string, public readonly status?: number, public readonly details?: unknown) { super(message); this.name = "SearchConsoleError"; }
+}
 type StoredConnection = { id: string; user_id: string; auth_type: "oauth" | "service_account"; encrypted_access_token: string | null; access_iv: string | null; access_tag: string | null; access_key_version: string | null; encrypted_refresh_token: string | null; refresh_iv: string | null; refresh_tag: string | null; refresh_key_version: string | null; token_expires_at: string | null; encrypted_service_account: string | null; service_account_iv: string | null; service_account_tag: string | null; service_account_key_version: string | null; status: "active" | "expired" | "revoked" };
 export type GoogleServiceAccount = { type: "service_account"; project_id: string; private_key_id: string; private_key: string; client_email: string; token_uri: string };
 
@@ -94,6 +97,11 @@ export async function getGoogleAccessToken(userId: string) {
 
 export async function googleApi<T>(url: string, accessToken: string, init?: RequestInit) {
   const response = await fetch(url, { ...init, headers: { ...init?.headers, Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(45_000), cache: "no-store" });
-  if (!response.ok) throw new Error(response.status === 403 ? "حساب گوگل به این داده دسترسی ندارد." : "دریافت داده از سرچ کنسول انجام نشد.");
+  if (!response.ok) {
+    const details = await response.json().catch(() => null);
+    const code = response.status === 401 ? "google_auth" : response.status === 403 ? "google_permission" : response.status === 429 ? "google_quota" : response.status >= 500 ? "google_unavailable" : "google_request";
+    const message = response.status === 401 ? "اعتبارنامهٔ گوگل معتبر نیست یا منقضی شده است." : response.status === 403 ? "حساب خدماتی به این ویژگی سرچ کنسول دسترسی ندارد؛ ایمیل آن را در بخش کاربران سایت اضافه کنید." : response.status === 429 ? "سهمیهٔ رابط برنامه‌نویسی گوگل پر شده است؛ همگام‌سازی کمی بعد دوباره انجام می‌شود." : response.status >= 500 ? "سرویس سرچ کنسول گوگل موقتاً پاسخ‌گو نیست." : `درخواست سرچ کنسول با کد ${response.status} رد شد.`;
+    throw new SearchConsoleError(code, message, response.status, details);
+  }
   return response.json() as Promise<T>;
 }

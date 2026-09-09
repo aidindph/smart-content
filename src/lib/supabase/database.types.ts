@@ -219,9 +219,21 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["gsc_metrics_daily"]["Insert"]>;
         Relationships: [];
       };
+      gsc_sync_runs: {
+        Row: { id: string; connection_id: string; user_id: string; trigger_type: "manual" | "scheduled"; status: "running" | "completed" | "partial" | "failed"; started_at: string; completed_at: string | null; properties_found: number; properties_synced: number; rows_written: number; search_types: string[]; error_code: string | null; error_message: string | null; error_details: Json };
+        Insert: { id?: string; connection_id: string; user_id: string; trigger_type: "manual" | "scheduled"; status?: "running" | "completed" | "partial" | "failed"; started_at?: string; completed_at?: string | null; properties_found?: number; properties_synced?: number; rows_written?: number; search_types?: string[]; error_code?: string | null; error_message?: string | null; error_details?: Json };
+        Update: Partial<Database["public"]["Tables"]["gsc_sync_runs"]["Insert"]>;
+        Relationships: [];
+      };
+      gsc_sitemaps: {
+        Row: { id: string; property_id: string; user_id: string; path: string; sitemap_type: string | null; is_pending: boolean; is_sitemaps_index: boolean; last_submitted_at: string | null; last_downloaded_at: string | null; warnings: number; errors: number; contents: Json; synced_at: string };
+        Insert: { id?: string; property_id: string; user_id: string; path: string; sitemap_type?: string | null; is_pending?: boolean; is_sitemaps_index?: boolean; last_submitted_at?: string | null; last_downloaded_at?: string | null; warnings?: number; errors?: number; contents?: Json; synced_at?: string };
+        Update: Partial<Database["public"]["Tables"]["gsc_sitemaps"]["Insert"]>;
+        Relationships: [];
+      };
       title_suggestions: {
-        Row: { id: string; user_id: string; property_id: string; source_query: string; source_page: string; suggested_title: string; evidence: Json; score: number; status: "pending" | "accepted" | "rejected"; created_at: string; updated_at: string };
-        Insert: { id?: string; user_id: string; property_id: string; source_query: string; source_page: string; suggested_title: string; evidence: Json; score: number; status?: "pending" | "accepted" | "rejected"; created_at?: string; updated_at?: string };
+        Row: { id: string; user_id: string; property_id: string; source_query: string; source_page: string; suggested_title: string; suggestion_type: string; analysis: Json; evidence: Json; score: number; status: "pending" | "accepted" | "rejected"; created_at: string; updated_at: string };
+        Insert: { id?: string; user_id: string; property_id: string; source_query: string; source_page: string; suggested_title: string; suggestion_type?: string; analysis?: Json; evidence: Json; score: number; status?: "pending" | "accepted" | "rejected"; created_at?: string; updated_at?: string };
         Update: Partial<Database["public"]["Tables"]["title_suggestions"]["Insert"]>;
         Relationships: [];
       };

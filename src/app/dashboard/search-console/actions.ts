@@ -40,9 +40,9 @@ export async function saveServiceAccountAction(_state: SearchConsoleConnectionSt
 export async function syncSearchConsoleAction() {
   const { profile } = await requireUser();
   try {
-    await syncSearchConsoleForUser(profile.id);
-  } catch {
-    redirect("/dashboard/search-console?error=sync");
+    await syncSearchConsoleForUser(profile.id, "manual");
+  } catch (error) {
+    redirect(`/dashboard/search-console?error=sync&detail=${encodeURIComponent(error instanceof Error ? error.message : "همگام‌سازی انجام نشد.")}`);
   }
   revalidatePath("/dashboard/search-console");
   redirect("/dashboard/search-console?notice=synced");
@@ -70,7 +70,7 @@ export async function suggestTitlesAction(formData: FormData) {
   const admin = createAdminClient();
   const { data: property } = await admin.from("gsc_properties").select("id").eq("id", propertyId).eq("user_id", profile.id).single<{ id: string }>();
   if (!property) redirect("/dashboard/search-console?error=property");
-  const { data: metrics } = await admin.from("gsc_metrics_daily").select("query, page, clicks, impressions, ctr, position").eq("property_id", propertyId).eq("user_id", profile.id).order("impressions", { ascending: false }).limit(5000).returns<Array<{ query: string; page: string; clicks: number; impressions: number; ctr: number; position: number }>>();
+  const { data: metrics } = await admin.from("gsc_metrics_daily").select("query, page, clicks, impressions, ctr, position").eq("property_id", propertyId).eq("user_id", profile.id).eq("search_type", "web").order("impressions", { ascending: false }).limit(50_000).returns<Array<{ query: string; page: string; clicks: number; impressions: number; ctr: number; position: number }>>();
   const aggregate = new Map<string, { query: string; page: string; clicks: number; impressions: number; weightedPosition: number }>();
   for (const row of metrics ?? []) {
     if (!row.query || !row.page) continue;
@@ -79,14 +79,19 @@ export async function suggestTitlesAction(formData: FormData) {
     current.clicks += Number(row.clicks); current.impressions += Number(row.impressions); current.weightedPosition += Number(row.position) * Number(row.impressions);
     aggregate.set(key, current);
   }
+  const pagesPerQuery = new Map<string, Set<string>>();
+  for (const item of aggregate.values()) { const pages = pagesPerQuery.get(item.query) ?? new Set<string>(); pages.add(item.page); pagesPerQuery.set(item.query, pages); }
   const opportunities = [...aggregate.values()].map((item) => {
     const ctr = item.impressions ? item.clicks / item.impressions : 0;
     const position = item.impressions ? item.weightedPosition / item.impressions : 0;
-    return { ...item, ctr, position, score: item.impressions * Math.max(0.01, 0.12 - ctr) / Math.max(1, position) };
-  }).filter((item) => item.impressions >= 10 && item.position >= 3 && item.position <= 30).sort((a, b) => b.score - a.score).slice(0, 8);
+    const competingPages = pagesPerQuery.get(item.query)?.size ?? 1;
+    const type = competingPages > 1 ? "cannibalization" : position <= 10 && ctr < .03 ? "ctr_gap" : position <= 15 ? "striking_distance" : "ranking_opportunity";
+    const score = item.impressions * Math.max(.015, .12 - ctr) * (type === "cannibalization" ? 1.4 : 1) / Math.max(1, Math.sqrt(position));
+    return { ...item, ctr, position, competingPages, type, score };
+  }).filter((item) => item.impressions >= 10 && item.position >= 3 && item.position <= 30).sort((a, b) => b.score - a.score).slice(0, 12);
   if (!opportunities.length) redirect("/dashboard/search-console?error=no-data");
 
-  let titles: string[] = [];
+  let suggestions: Array<{ title: string; reason: string; angle: string; searchIntent: string; metaDescription: string }> = [];
   try {
     const [source, keyId] = connectionId.split(":");
     const stored = source === "system" ? await loadSystemApiKey(keyId) : await loadUserApiKey(profile.id, keyId);
@@ -95,15 +100,14 @@ export async function suggestTitlesAction(formData: FormData) {
     const modelKey = z.string().trim().min(2).max(200).parse(formData.get("model"));
     const { data: model } = await admin.from("provider_models").select("id").eq("provider_id", stored.providerId).eq("model_key", modelKey).eq("enabled", true).in("kind", ["text", "multimodal"]).maybeSingle<{ id: string }>();
     if (!model) throw new Error("مدل انتخاب‌شده برای این اتصال فعال نیست.");
-    const result = await getTextProviderAdapter(provider.slug).generateText({ apiKey: stored.apiKey, model: modelKey, prompt: `برای هر ردیف زیر یک عنوان فارسی روشن، دقیق و جذاب پیشنهاد بده. فقط آرایه JSON رشته‌ها و دقیقاً به همان ترتیب برگردان:\n${JSON.stringify(opportunities.map(({ query, page, impressions, ctr, position }) => ({ query, page, impressions, ctr, position })))}`, maxOutputTokens: 1200 });
+    const result = await getTextProviderAdapter(provider.slug).generateText({ apiKey: stored.apiKey, model: modelKey, prompt: `نقش شما استراتژیست ارشد سئو فارسی است. برای هر فرصت دقیقاً یک پیشنهاد اختصاصی بساز. عنوان باید روشن، طبیعی، متناسب با قصد جست‌وجو، حدود ۴۵ تا ۶۵ نویسه و بدون اغراق یا عبارت‌های کلیشه‌ای مانند «راهنمای کامل و کاربردی» باشد. از داده‌ها یا ویژگی‌هایی که در ورودی نیست چیزی اختراع نکن. برای صفحات رقیب روی یک عبارت، دلیل هم‌پوشانی را توضیح بده. خروجی فقط آرایهٔ JSON معتبر و دقیقاً به ترتیب ورودی با ساختار {"title":"...","reason":"توضیح مشخص بر پایه داده","angle":"زاویه پیشنهادی محتوا","searchIntent":"قصد جست‌وجو به فارسی","metaDescription":"توضیح متای طبیعی ۱۲۰ تا ۱۵۵ نویسه"} باشد.\nفرصت‌ها:\n${JSON.stringify(opportunities.map(({ query, page, clicks, impressions, ctr, position, competingPages, type }) => ({ query, page, clicks, impressions, ctr: Number((ctr * 100).toFixed(2)), position: Number(position.toFixed(1)), competingPages, opportunityType: type })))}`, maxOutputTokens: 4000, temperature: .35 });
     const cleaned = result.text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-    const parsed = JSON.parse(cleaned);
-    if (Array.isArray(parsed)) titles = parsed.map(String);
-  } catch {
-    titles = [];
+    suggestions = z.array(z.object({ title: z.string().min(15).max(120), reason: z.string().min(15).max(800), angle: z.string().min(5).max(300), searchIntent: z.string().min(3).max(100), metaDescription: z.string().min(50).max(300) })).length(opportunities.length).parse(JSON.parse(cleaned));
+  } catch (error) {
+    redirect(`/dashboard/search-console?error=suggestion-model&detail=${encodeURIComponent(error instanceof Error ? error.message : "مدل پاسخ معتبر برنگرداند.")}`);
   }
   await admin.from("title_suggestions").delete().eq("property_id", propertyId).eq("user_id", profile.id).eq("status", "pending");
-  await admin.from("title_suggestions").insert(opportunities.map((item, index) => ({ user_id: profile.id, property_id: propertyId, source_query: item.query, source_page: item.page, suggested_title: titles[index]?.slice(0, 300) || `${item.query}؛ راهنمای کامل و کاربردی`, evidence: { clicks: item.clicks, impressions: item.impressions, ctr: item.ctr, position: item.position }, score: item.score })));
+  await admin.from("title_suggestions").insert(opportunities.map((item, index) => ({ user_id: profile.id, property_id: propertyId, source_query: item.query, source_page: item.page, suggested_title: suggestions[index].title, suggestion_type: item.type, analysis: { reason: suggestions[index].reason, angle: suggestions[index].angle, search_intent: suggestions[index].searchIntent, meta_description: suggestions[index].metaDescription, competing_pages: item.competingPages }, evidence: { clicks: item.clicks, impressions: item.impressions, ctr: item.ctr, position: item.position }, score: item.score })));
   revalidatePath("/dashboard/search-console");
   redirect("/dashboard/search-console?notice=suggested");
 }

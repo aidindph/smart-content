@@ -1,0 +1,37 @@
+name: بررسی کیفیت
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: نصب pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+
+      - name: آماده‌سازی Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: نصب وابستگی‌ها
+        run: pnpm install --frozen-lockfile
+
+      - name: لینت
+        run: pnpm lint
+
+      - name: بررسی نوع‌ها
+        run: pnpm typecheck
+
+      - name: ساخت برنامه
+        run: pnpm build

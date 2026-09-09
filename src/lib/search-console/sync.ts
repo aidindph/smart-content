@@ -10,6 +10,18 @@ type SitemapsResponse = { sitemap?: Array<{ path?: string; lastSubmitted?: strin
 type Property = { id: string; site_url: string };
 type SyncIssue = { property?: string; searchType?: string; code: string; message: string; details?: Json };
 const searchTypes = ["web", "image", "video", "news", "discover", "googleNews"] as const;
+type SearchType = (typeof searchTypes)[number];
+type PerformanceDimension = "date" | "query" | "page" | "country" | "device";
+const dimensionsBySearchType: Record<SearchType, PerformanceDimension[]> = {
+  web: ["date", "query", "page", "country", "device"],
+  image: ["date", "query", "page", "country", "device"],
+  video: ["date", "query", "page", "country", "device"],
+  news: ["date", "query", "page", "country", "device"],
+  // Discover has no search query and Google rejects grouping it by device.
+  discover: ["date", "page", "country"],
+  // Google News has no query dimension, but does expose device data.
+  googleNews: ["date", "page", "country", "device"],
+};
 const dateOnly = (date: Date) => date.toISOString().slice(0, 10);
 const addDays = (date: Date, days: number) => { const next = new Date(date); next.setUTCDate(next.getUTCDate() + days); return next; };
 const safeJson = (value: unknown): Json | undefined => value === undefined ? undefined : JSON.parse(JSON.stringify(value)) as Json;
@@ -29,16 +41,21 @@ async function syncPerformance(accessToken: string, userId: string, property: Pr
   let rowsWritten = 0;
   const completedTypes: string[] = [];
   for (const searchType of searchTypes) {
+    const dimensions = dimensionsBySearchType[searchType];
     let typeSucceeded = true;
     for (let windowStart = new Date(start); windowStart <= end; windowStart = addDays(windowStart, 30)) {
       const windowEnd = new Date(Math.min(addDays(windowStart, 29).getTime(), end.getTime()));
       let startRow = 0;
       try {
         do {
-          const payload = await googleApi<AnalyticsResponse>(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property.site_url)}/searchAnalytics/query`, accessToken, { method: "POST", body: JSON.stringify({ startDate: dateOnly(windowStart), endDate: dateOnly(windowEnd), dimensions: ["date", "query", "page", "country", "device"], rowLimit: 25_000, startRow, dataState: "final", type: searchType }) });
+          const payload = await googleApi<AnalyticsResponse>(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property.site_url)}/searchAnalytics/query`, accessToken, { method: "POST", body: JSON.stringify({ startDate: dateOnly(windowStart), endDate: dateOnly(windowEnd), dimensions, rowLimit: 25_000, startRow, dataState: "final", type: searchType }) });
           const rows = payload.rows ?? [];
           for (let offset = 0; offset < rows.length; offset += 1000) {
-            const batch = rows.slice(offset, offset + 1000).flatMap((row) => row.keys?.[0] ? [{ property_id: property.id, user_id: userId, metric_date: row.keys[0], query: row.keys[1] ?? "", page: row.keys[2] ?? "", country: row.keys[3] ?? "", device: row.keys[4] ?? "", search_type: searchType, clicks: row.clicks ?? 0, impressions: row.impressions ?? 0, ctr: row.ctr ?? 0, position: row.position ?? 0, synced_at: new Date().toISOString() }] : []);
+            const batch = rows.slice(offset, offset + 1000).flatMap((row) => {
+              if (!row.keys?.[0]) return [];
+              const values = Object.fromEntries(dimensions.map((dimension, index) => [dimension, row.keys?.[index] ?? ""])) as Record<PerformanceDimension, string>;
+              return [{ property_id: property.id, user_id: userId, metric_date: values.date, query: values.query ?? "", page: values.page ?? "", country: values.country ?? "", device: values.device ?? "", search_type: searchType, clicks: row.clicks ?? 0, impressions: row.impressions ?? 0, ctr: row.ctr ?? 0, position: row.position ?? 0, synced_at: new Date().toISOString() }];
+            });
             if (batch.length) { const { error } = await admin.from("gsc_metrics_daily").upsert(batch, { onConflict: "property_id,metric_date,query,page,country,device,search_type" }); if (error) throw error; rowsWritten += batch.length; }
           }
           startRow += rows.length;

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="موتور هوشمند محتوا">
+  <defs>
+    <linearGradient id="background" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1A7F59"/>
+      <stop offset="1" stop-color="#0D5238"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="39" y1="9" x2="54" y2="25" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F3D58B"/>
+      <stop offset="1" stop-color="#D9A441"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#background)"/>
+  <path d="M16 23.5v17c0 5.8 3.8 9.5 9.6 9.5h12.8c5.8 0 9.6-3.7 9.6-9.5V27h-8v13.2c0 1.7-.9 2.8-2.7 2.8H35V30h-8v13h-1.8c-.8 0-1.2-.5-1.2-1.5v-18H16Z" fill="#fff"/>
+  <path d="M47 8.5 49.6 15 56 17.5 49.6 20 47 26.5 44.4 20 38 17.5 44.4 15 47 8.5Z" fill="url(#spark)"/>
+  <circle cx="18" cy="17" r="3" fill="#fff" fill-opacity=".88"/>
+</svg>

@@ -2,6 +2,7 @@
   "name": "smart-content",
   "version": "0.1.0",
   "private": true,
+  "author": "Aidin Ghassemi <115881467+aidindph@users.noreply.github.com>",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

@@ -8,6 +8,10 @@ export const metadata: Metadata = {
     template: "%s | موتور هوشمند محتوا",
   },
   description: "داشبورد یکپارچهٔ تولید محتوای متنی و تصویری با هوش مصنوعی",
+  authors: [{ name: "Aidin Ghassemi", url: "https://github.com/aidindph" }],
+  creator: "Aidin Ghassemi",
+  publisher: "Parsnest",
+  icons: { icon: "/icon.svg" },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

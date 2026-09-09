@@ -17,27 +17,30 @@ const schema = z.object({
   language: z.string().trim().min(2).max(16).default("fa"),
   tone: z.enum(["professional", "friendly", "persuasive", "educational", "creative"]),
   targetWords: z.coerce.number().int().min(400, "حداقل طول ۴۰۰ واژه است.").max(5000, "حداکثر طول ۵۰۰۰ واژه است."),
-  textKeyId: z.string().uuid("کلید متن معتبر نیست."),
+  textConnectionId: z.string().regex(/^(user|system):[0-9a-f-]{36}$/i, "اتصال متن معتبر نیست."),
   textModel: z.string().trim().min(2, "شناسهٔ مدل متن را وارد کنید.").max(200),
   imageCount: z.coerce.number().int().min(0).max(4),
-  imageKeyId: z.string().uuid().optional().or(z.literal("")),
+  imageConnectionId: z.string().regex(/^(user|system):[0-9a-f-]{36}$/i).optional().or(z.literal("")),
   imageModel: z.string().trim().max(200).default(""),
 }).superRefine((value, context) => {
-  if (value.imageCount > 0 && (!value.imageKeyId || value.imageModel.length < 2)) {
+  if (value.imageCount > 0 && (!value.imageConnectionId || value.imageModel.length < 2)) {
     context.addIssue({ code: "custom", path: ["imageModel"], message: "برای ساخت تصویر، کلید و مدل تصویر را انتخاب کنید." });
   }
 });
 
 type KeyRow = { id: string; provider_id: string; is_active: boolean; test_status: "valid" | "invalid" | "untested"; deleted_at: string | null };
 
-async function resolveKey(userId: string, keyId: string) {
+async function resolveCredential(userId: string, connectionId: string) {
   const admin = createAdminClient();
-  const { data: key } = await admin.from("user_api_keys").select("id, provider_id, is_active, test_status, deleted_at")
-    .eq("id", keyId).eq("user_id", userId).single<KeyRow>();
+  const [source, keyId] = connectionId.split(":") as ["user" | "system", string];
+  const query = source === "user"
+    ? admin.from("user_api_keys").select("id, provider_id, is_active, test_status, deleted_at").eq("id", keyId).eq("user_id", userId)
+    : admin.from("system_api_keys").select("id, provider_id, is_active, test_status, deleted_at").eq("id", keyId);
+  const { data: key } = await query.single<KeyRow>();
   if (!key || key.deleted_at || !key.is_active || key.test_status !== "valid") throw new Error("کلید انتخاب‌شده فعال و تأییدشده نیست.");
   const { data: provider } = await admin.from("providers").select("id, slug, enabled").eq("id", key.provider_id).single<{ id: string; slug: string; enabled: boolean }>();
   if (!provider?.enabled) throw new Error("ارائه‌دهندهٔ انتخاب‌شده غیرفعال است.");
-  return { key, provider };
+  return { key, provider, source };
 }
 
 export async function createContentAction(_state: CreateContentState, formData: FormData): Promise<CreateContentState> {
@@ -65,13 +68,13 @@ export async function createContentAction(_state: CreateContentState, formData: 
   if ((dailyCount ?? 0) >= dailyLimit) return { status: "error", message: "سقف درخواست روزانهٔ شما پر شده است." };
   if ((monthlyCount ?? 0) >= monthlyLimit) return { status: "error", message: "سقف درخواست ماهانهٔ شما پر شده است." };
 
-  let textConnection: Awaited<ReturnType<typeof resolveKey>>;
-  let imageConnection: Awaited<ReturnType<typeof resolveKey>> | undefined;
+  let textConnection: Awaited<ReturnType<typeof resolveCredential>>;
+  let imageConnection: Awaited<ReturnType<typeof resolveCredential>> | undefined;
   try {
-    textConnection = await resolveKey(profile.id, parsed.data.textKeyId);
+    textConnection = await resolveCredential(profile.id, parsed.data.textConnectionId);
     getTextProviderAdapter(textConnection.provider.slug);
-    if (parsed.data.imageCount && parsed.data.imageKeyId) {
-      imageConnection = await resolveKey(profile.id, parsed.data.imageKeyId);
+    if (parsed.data.imageCount && parsed.data.imageConnectionId) {
+      imageConnection = await resolveCredential(profile.id, parsed.data.imageConnectionId);
       getImageProviderAdapter(imageConnection.provider.slug);
     }
   } catch (error) {
@@ -85,7 +88,7 @@ export async function createContentAction(_state: CreateContentState, formData: 
   const requestId = randomUUID();
   const jobId = randomUUID();
   const keywords = parsed.data.keywords.split(/[،,\n]/).map((keyword) => keyword.trim()).filter(Boolean).slice(0, 30);
-  const imageConfigured = parsed.data.imageCount > 0 && parsed.data.imageKeyId && imageConnection;
+  const imageConfigured = parsed.data.imageCount > 0 && parsed.data.imageConnectionId && imageConnection;
   const { error: requestError } = await admin.from("content_requests").insert({
     id: requestId,
     user_id: profile.id,
@@ -95,10 +98,12 @@ export async function createContentAction(_state: CreateContentState, formData: 
     audience: parsed.data.audience,
     tone: parsed.data.tone,
     target_words: parsed.data.targetWords,
-    text_api_key_id: parsed.data.textKeyId,
+    text_api_key_id: textConnection.source === "user" ? textConnection.key.id : null,
+    text_system_api_key_id: textConnection.source === "system" ? textConnection.key.id : null,
     text_provider_slug: textConnection.provider.slug,
     text_model: parsed.data.textModel,
-    image_api_key_id: imageConfigured ? parsed.data.imageKeyId : null,
+    image_api_key_id: imageConfigured && imageConnection!.source === "user" ? imageConnection!.key.id : null,
+    image_system_api_key_id: imageConfigured && imageConnection!.source === "system" ? imageConnection!.key.id : null,
     image_provider_slug: imageConfigured ? imageConnection!.provider.slug : null,
     image_model: imageConfigured ? parsed.data.imageModel : null,
     image_count: imageConfigured ? parsed.data.imageCount : 0,

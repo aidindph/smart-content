@@ -6,7 +6,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth/guards";
 import { getTextProviderAdapter } from "@/lib/providers/registry";
 import { syncSearchConsoleForUser } from "@/lib/search-console/sync";
-import { loadUserApiKey } from "@/lib/security/api-key-vault";
+import { loadSystemApiKey, loadUserApiKey } from "@/lib/security/api-key-vault";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const uuid = z.string().uuid();
@@ -39,7 +39,7 @@ export async function disconnectSearchConsoleAction() {
 
 export async function suggestTitlesAction(formData: FormData) {
   const propertyId = uuid.parse(formData.get("propertyId"));
-  const keyId = uuid.parse(formData.get("keyId"));
+  const connectionId = z.string().regex(/^(user|system):[0-9a-f-]{36}$/i).parse(formData.get("connectionId"));
   const { profile } = await requireUser();
   const admin = createAdminClient();
   const { data: property } = await admin.from("gsc_properties").select("id").eq("id", propertyId).eq("user_id", profile.id).single<{ id: string }>();
@@ -62,7 +62,8 @@ export async function suggestTitlesAction(formData: FormData) {
 
   let titles: string[] = [];
   try {
-    const stored = await loadUserApiKey(profile.id, keyId);
+    const [source, keyId] = connectionId.split(":");
+    const stored = source === "system" ? await loadSystemApiKey(keyId) : await loadUserApiKey(profile.id, keyId);
     const { data: provider } = await admin.from("providers").select("slug, enabled").eq("id", stored.providerId).single<{ slug: string; enabled: boolean }>();
     if (!provider?.enabled) throw new Error("ارائه‌دهنده غیرفعال است.");
     const result = await getTextProviderAdapter(provider.slug).generateText({ apiKey: stored.apiKey, model: String(formData.get("model") ?? ""), prompt: `برای هر ردیف زیر یک عنوان فارسی روشن، دقیق و جذاب پیشنهاد بده. فقط آرایه JSON رشته‌ها و دقیقاً به همان ترتیب برگردان:\n${JSON.stringify(opportunities.map(({ query, page, impressions, ctr, position }) => ({ query, page, impressions, ctr, position })))}`, maxOutputTokens: 1200 });

@@ -2,7 +2,7 @@ import "server-only";
 
 import { ProviderError } from "@/lib/providers/errors";
 import { getImageProviderAdapter, getTextProviderAdapter } from "@/lib/providers/registry";
-import { loadUserApiKey } from "@/lib/security/api-key-vault";
+import { loadSystemApiKey, loadUserApiKey } from "@/lib/security/api-key-vault";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildArticlePrompt, buildImagePrompt, extractArticleTitle } from "./prompt";
 
@@ -11,8 +11,8 @@ type Job = {
 };
 type Request = {
   id: string; user_id: string; topic: string; keywords: string[]; language: string; audience: string; tone: string;
-  target_words: number; text_api_key_id: string; text_provider_slug: string; text_model: string;
-  image_api_key_id: string | null; image_provider_slug: string | null; image_model: string | null; image_count: number;
+  target_words: number; text_api_key_id: string | null; text_system_api_key_id: string | null; text_provider_slug: string; text_model: string;
+  image_api_key_id: string | null; image_system_api_key_id: string | null; image_provider_slug: string | null; image_model: string | null; image_count: number;
 };
 type Step = { id: string; kind: "article" | "hero_image" | "inline_image"; position: number };
 type PricingUnit = "input_million_tokens" | "output_million_tokens" | "image" | "request";
@@ -82,7 +82,9 @@ export async function processGenerationJob(jobId: string, userId: string) {
     const articleStep = steps?.find((step) => step.kind === "article");
     if (!articleStep) throw new Error("مرحلهٔ نگارش در دسترس نیست.");
 
-    const textSecret = await loadUserApiKey(userId, request.text_api_key_id);
+    const textSecret = request.text_api_key_id
+      ? await loadUserApiKey(userId, request.text_api_key_id)
+      : await loadSystemApiKey(request.text_system_api_key_id!);
     const { data: textProvider } = await admin.from("providers").select("id, slug, enabled").eq("id", textSecret.providerId).single<{ id: string; slug: string; enabled: boolean }>();
     if (!textProvider?.enabled || textProvider.slug !== request.text_provider_slug) throw new Error("ارائه‌دهندهٔ متن غیرفعال یا ناسازگار است.");
 
@@ -114,8 +116,10 @@ export async function processGenerationJob(jobId: string, userId: string) {
       return { accepted: true, status: "cancelled" } as const;
     }
 
-    if (request.image_count && request.image_api_key_id && request.image_provider_slug && request.image_model) {
-      const imageSecret = await loadUserApiKey(userId, request.image_api_key_id);
+    if (request.image_count && (request.image_api_key_id || request.image_system_api_key_id) && request.image_provider_slug && request.image_model) {
+      const imageSecret = request.image_api_key_id
+        ? await loadUserApiKey(userId, request.image_api_key_id)
+        : await loadSystemApiKey(request.image_system_api_key_id!);
       const { data: imageProvider } = await admin.from("providers").select("id, slug, enabled").eq("id", imageSecret.providerId).single<{ id: string; slug: string; enabled: boolean }>();
       if (!imageProvider?.enabled || imageProvider.slug !== request.image_provider_slug) throw new Error("ارائه‌دهندهٔ تصویر غیرفعال یا ناسازگار است.");
       const adapter = getImageProviderAdapter(imageProvider.slug);

@@ -1,38 +1,50 @@
 import { randomUUID } from "node:crypto";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AppIcon } from "@/components/app-icon";
 import { requireUser } from "@/lib/auth/guards";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { ContentRequestForm } from "./content-request-form";
 
 export const metadata: Metadata = { title: "درخواست محتوای جدید" };
 
 type KeyRow = { id: string; provider_id: string; label: string; key_hint: string; is_active: boolean; test_status: string };
 type Provider = { id: string; name: string; slug: string; kind: "text" | "image" | "multimodal"; enabled: boolean };
+type Model = { id: string; provider_id: string; model_key: string; display_name: string; kind: "text" | "image" | "multimodal"; enabled: boolean };
 
 export default async function NewContentPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { supabase } = await requireUser();
+  const admin = createAdminClient();
   const query = await searchParams;
   const initialTopic = typeof query.topic === "string" ? query.topic.slice(0, 300) : "";
   const initialKeywords = typeof query.keywords === "string" ? query.keywords.slice(0, 1000) : "";
-  const [{ data: keys }, { data: providers }] = await Promise.all([
+  const [{ data: keys }, { data: systemKeys }, { data: providers }, { data: models }] = await Promise.all([
     supabase.from("user_api_keys").select("id, provider_id, label, key_hint, is_active, test_status").is("deleted_at", null).eq("is_active", true).eq("test_status", "valid").returns<KeyRow[]>(),
+    admin.from("system_api_keys").select("id, provider_id, label, key_hint, is_active, test_status").is("deleted_at", null).eq("is_active", true).eq("test_status", "valid").returns<KeyRow[]>(),
     supabase.from("providers").select("id, name, slug, kind, enabled").eq("enabled", true).returns<Provider[]>(),
+    supabase.from("provider_models").select("id, provider_id, model_key, display_name, kind, enabled").eq("enabled", true).order("display_name").returns<Model[]>(),
   ]);
   const providerById = new Map((providers ?? []).map((provider) => [provider.id, provider]));
-  const options = (keys ?? []).flatMap((key) => {
+  const buildOption = (key: KeyRow, source: "user" | "system") => {
     const provider = providerById.get(key.provider_id);
-    if (!provider) return [];
-    return [{ id: key.id, label: key.label, key_hint: key.key_hint, providerName: provider.name, providerSlug: provider.slug, supportsImage: provider.kind !== "text" }];
-  });
+    if (!provider) return null;
+    const providerModels = (models ?? []).filter((model) => model.provider_id === provider.id).map((model) => ({ key: model.model_key, name: model.display_name, kind: model.kind }));
+    if (!providerModels.length) return null;
+    return { id: `${source}:${key.id}`, label: key.label, key_hint: key.key_hint, providerName: provider.name, providerSlug: provider.slug, source, models: providerModels };
+  };
+  const options = [
+    ...(systemKeys ?? []).map((key) => buildOption(key, "system")),
+    ...(keys ?? []).map((key) => buildOption(key, "user")),
+  ].filter((option): option is NonNullable<typeof option> => Boolean(option));
 
   return (
     <div className="mx-auto max-w-5xl">
-      <header className="flex flex-wrap items-start justify-between gap-5">
-        <div><p className="text-sm font-bold text-brand">موتور تولید</p><h1 className="mt-2 text-3xl font-black">درخواست محتوای جدید</h1><p className="mt-3 text-muted">تنظیمات هر اجرا ثابت می‌ماند تا نتیجه و مصرف آن قابل ردیابی باشد.</p></div>
-        <Link className="secondary-button" href="/dashboard/history">مشاهدهٔ تاریخچه</Link>
+      <header className="page-heading">
+        <div><span className="page-kicker"><AppIcon name="sparkles" /> موتور تولید</span><h1>محتوای تازه بسازید</h1><p>در سه مرحله موضوع، موتور متن و تصویر را مشخص کنید؛ بقیهٔ کار را سامانه انجام می‌دهد.</p></div>
+        <Link className="soft-button" href="/dashboard/history"><AppIcon className="h-4 w-4" name="history" /> مشاهدهٔ تاریخچه</Link>
       </header>
       {options.length ? <ContentRequestForm idempotencyKey={randomUUID()} initialKeywords={initialKeywords} initialTopic={initialTopic} keys={options} /> : (
-        <section className="panel mt-8 p-6"><h2 className="text-xl font-black">ابتدا یک کلید فعال ثبت کنید</h2><p className="mt-2 text-sm leading-6 text-muted">برای ساخت مقاله، ارائه‌دهنده باید در مدیریت سامانه فعال باشد و کلید شما آزمایش موفق داشته باشد.</p><Link className="primary-button mt-5" href="/dashboard/api-keys">رفتن به کلیدها</Link></section>
+        <section className="setup-empty"><span><AppIcon name="key" /></span><h2>موتور تولید هنوز آماده نیست</h2><p>یک کلید معتبر و دست‌کم یک مدل فعال لازم است. اگر مدیر کلید سراسری ثبت کند، همهٔ کاربران بدون افزودن کلید شخصی به آن دسترسی خواهند داشت.</p><Link className="primary-button mt-5" href="/dashboard/api-keys">بررسی اتصال‌های هوش مصنوعی</Link></section>
       )}
     </div>
   );

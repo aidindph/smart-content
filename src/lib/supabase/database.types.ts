@@ -87,17 +87,59 @@ export type Database = {
           },
         ];
       };
+      system_api_keys: {
+        Row: {
+          id: string;
+          provider_id: string;
+          label: string;
+          encrypted_key: string;
+          encryption_iv: string;
+          encryption_tag: string;
+          key_version: string;
+          key_hint: string;
+          is_active: boolean;
+          test_status: "valid" | "invalid" | "untested";
+          last_tested_at: string | null;
+          last_error_code: string | null;
+          created_by: string | null;
+          updated_by: string | null;
+          created_at: string;
+          updated_at: string;
+          deleted_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          provider_id: string;
+          label: string;
+          encrypted_key: string;
+          encryption_iv: string;
+          encryption_tag: string;
+          key_version: string;
+          key_hint: string;
+          is_active?: boolean;
+          test_status?: "valid" | "invalid" | "untested";
+          last_tested_at?: string | null;
+          last_error_code?: string | null;
+          created_by?: string | null;
+          updated_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          deleted_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["system_api_keys"]["Insert"]>;
+        Relationships: [];
+      };
       content_requests: {
         Row: {
           id: string; user_id: string; topic: string; keywords: string[]; language: string; audience: string;
           tone: "professional" | "friendly" | "persuasive" | "educational" | "creative"; target_words: number;
-          text_api_key_id: string; text_provider_slug: string; text_model: string; image_api_key_id: string | null;
+          text_api_key_id: string | null; text_system_api_key_id: string | null; text_provider_slug: string; text_model: string; image_api_key_id: string | null; image_system_api_key_id: string | null;
           image_provider_slug: string | null; image_model: string | null; image_count: number; settings_snapshot: Json; created_at: string;
         };
         Insert: {
           id?: string; user_id: string; topic: string; keywords?: string[]; language?: string; audience: string;
           tone?: "professional" | "friendly" | "persuasive" | "educational" | "creative"; target_words: number;
-          text_api_key_id: string; text_provider_slug: string; text_model: string; image_api_key_id?: string | null;
+          text_api_key_id?: string | null; text_system_api_key_id?: string | null; text_provider_slug: string; text_model: string; image_api_key_id?: string | null; image_system_api_key_id?: string | null;
           image_provider_slug?: string | null; image_model?: string | null; image_count?: number; settings_snapshot?: Json; created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["content_requests"]["Insert"]>;

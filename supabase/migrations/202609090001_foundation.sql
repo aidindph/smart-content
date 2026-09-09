@@ -344,6 +344,10 @@ on public.system_settings for select
 to supabase_auth_admin
 using (id = 1);
 
+grant select on public.system_settings to supabase_auth_admin;
+grant select on public.user_invitations to supabase_auth_admin;
+grant usage on schema extensions to supabase_auth_admin;
+
 create policy providers_read_authenticated
 on public.providers for select
 to authenticated

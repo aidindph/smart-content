@@ -4,14 +4,24 @@ import { requireUser } from "@/lib/auth/guards";
 
 export const metadata: Metadata = { title: "داشبورد" };
 
-const cards = [
-  ["درخواست‌های این ماه", "۰", "پس از نخستین تولید نمایش داده می‌شود"],
-  ["هزینهٔ تخمینی", "$۰٫۰۰", "بر پایهٔ قیمت ثبت‌شدهٔ مدل‌ها"],
-  ["محتوای تکمیل‌شده", "۰", "متن و تصویرهای آماده"],
-] as const;
+type Job = { id: string; status: "queued" | "running" | "completed" | "failed" | "cancelled"; output_title: string | null; estimated_cost_usd: number | null; created_at: string };
 
 export default async function DashboardPage() {
-  const { profile } = await requireUser();
+  const { profile, supabase } = await requireUser();
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const [{ data: monthJobs }, { data: recentJobs }, { count: keyCount }] = await Promise.all([
+    supabase.from("generation_jobs").select("id, status, output_title, estimated_cost_usd, created_at").gte("created_at", monthStart).returns<Job[]>(),
+    supabase.from("generation_jobs").select("id, status, output_title, estimated_cost_usd, created_at").order("created_at", { ascending: false }).limit(5).returns<Job[]>(),
+    supabase.from("user_api_keys").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("is_active", true).eq("test_status", "valid"),
+  ]);
+  const completed = (monthJobs ?? []).filter((job) => job.status === "completed").length;
+  const cost = (monthJobs ?? []).reduce((sum, job) => sum + Number(job.estimated_cost_usd ?? 0), 0);
+  const cards = [
+    ["درخواست‌های این ماه", new Intl.NumberFormat("fa-IR").format(monthJobs?.length ?? 0), "همهٔ اجراهای ثبت‌شده"],
+    ["هزینهٔ تخمینی", `$${cost.toFixed(4)}`, "بر پایهٔ قیمت‌های ثبت‌شده"],
+    ["محتوای تکمیل‌شده", new Intl.NumberFormat("fa-IR").format(completed), "خروجی‌های آمادهٔ انتشار"],
+  ] as const;
   return (
     <div className="mx-auto max-w-6xl">
       <header className="flex flex-wrap items-end justify-between gap-5">
@@ -33,10 +43,11 @@ export default async function DashboardPage() {
       </section>
       <section className="panel mt-6 p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div><h2 className="text-xl font-black">شروع سریع</h2><p className="mt-2 text-sm text-muted">برای تولید نخستین محتوا، ابتدا کلید یکی از مدل‌ها را متصل کنید.</p></div>
-          <Link className="secondary-button" href="/dashboard/api-keys">مدیریت کلیدها</Link>
+          <div><h2 className="text-xl font-black">{keyCount ? "تولید بعدی را آغاز کنید" : "شروع سریع"}</h2><p className="mt-2 text-sm text-muted">{keyCount ? `${new Intl.NumberFormat("fa-IR").format(keyCount)} کلید فعال و آزمایش‌شده آماده است.` : "برای تولید نخستین محتوا، ابتدا کلید یکی از مدل‌ها را متصل کنید."}</p></div>
+          <Link className="secondary-button" href={keyCount ? "/dashboard/content/new" : "/dashboard/api-keys"}>{keyCount ? "درخواست جدید" : "مدیریت کلیدها"}</Link>
         </div>
       </section>
+      {(recentJobs ?? []).length ? <section className="panel mt-6 overflow-hidden"><div className="flex items-center justify-between border-b border-line p-5"><h2 className="text-xl font-black">فعالیت اخیر</h2><Link className="text-sm font-bold text-brand" href="/dashboard/history">مشاهدهٔ همه</Link></div><div className="divide-y divide-line">{(recentJobs ?? []).map((job) => <Link className="flex items-center justify-between gap-4 p-4 hover:bg-surface-subtle" href={`/dashboard/history/${job.id}`} key={job.id}><span className="truncate font-bold">{job.output_title ?? "درخواست در حال پردازش"}</span><span className="shrink-0 text-xs text-muted">{job.status === "completed" ? "تکمیل‌شده" : job.status === "running" ? "در حال اجرا" : job.status === "queued" ? "در صف" : job.status === "failed" ? "ناموفق" : "لغوشده"}</span></Link>)}</div></section> : null}
     </div>
   );
 }

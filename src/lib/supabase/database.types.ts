@@ -27,6 +27,18 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["providers"]["Insert"]>;
         Relationships: [];
       };
+      provider_models: {
+        Row: { id: string; provider_id: string; model_key: string; display_name: string; kind: "text" | "image" | "multimodal"; enabled: boolean; capabilities: Json; created_at: string; updated_at: string };
+        Insert: { id?: string; provider_id: string; model_key: string; display_name: string; kind: "text" | "image" | "multimodal"; enabled?: boolean; capabilities?: Json; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["provider_models"]["Insert"]>;
+        Relationships: [];
+      };
+      provider_pricing: {
+        Row: { id: string; provider_model_id: string; unit: "input_million_tokens" | "output_million_tokens" | "image" | "request"; price_usd: number; effective_from: string; effective_until: string | null; created_at: string; created_by: string | null };
+        Insert: { id?: string; provider_model_id: string; unit: "input_million_tokens" | "output_million_tokens" | "image" | "request"; price_usd: number; effective_from: string; effective_until?: string | null; created_at?: string; created_by?: string | null };
+        Update: Partial<Database["public"]["Tables"]["provider_pricing"]["Insert"]>;
+        Relationships: [];
+      };
       user_api_keys: {
         Row: {
           id: string;
@@ -74,6 +86,68 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      content_requests: {
+        Row: {
+          id: string; user_id: string; topic: string; keywords: string[]; language: string; audience: string;
+          tone: "professional" | "friendly" | "persuasive" | "educational" | "creative"; target_words: number;
+          text_api_key_id: string; text_provider_slug: string; text_model: string; image_api_key_id: string | null;
+          image_provider_slug: string | null; image_model: string | null; image_count: number; settings_snapshot: Json; created_at: string;
+        };
+        Insert: {
+          id?: string; user_id: string; topic: string; keywords?: string[]; language?: string; audience: string;
+          tone?: "professional" | "friendly" | "persuasive" | "educational" | "creative"; target_words: number;
+          text_api_key_id: string; text_provider_slug: string; text_model: string; image_api_key_id?: string | null;
+          image_provider_slug?: string | null; image_model?: string | null; image_count?: number; settings_snapshot?: Json; created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["content_requests"]["Insert"]>;
+        Relationships: [];
+      };
+      generation_jobs: {
+        Row: {
+          id: string; request_id: string; user_id: string; status: "queued" | "running" | "completed" | "failed" | "cancelled";
+          progress: number; current_step: string | null; attempt: number; max_attempts: number; cancel_requested: boolean;
+          locked_at: string | null; started_at: string | null; completed_at: string | null; error_code: string | null;
+          error_message: string | null; output_title: string | null; output_markdown: string | null; input_tokens: number;
+          output_tokens: number; estimated_cost_usd: number | null; idempotency_key: string; created_at: string; updated_at: string;
+        };
+        Insert: {
+          id?: string; request_id: string; user_id: string; status?: "queued" | "running" | "completed" | "failed" | "cancelled";
+          progress?: number; current_step?: string | null; attempt?: number; max_attempts?: number; cancel_requested?: boolean;
+          locked_at?: string | null; started_at?: string | null; completed_at?: string | null; error_code?: string | null;
+          error_message?: string | null; output_title?: string | null; output_markdown?: string | null; input_tokens?: number;
+          output_tokens?: number; estimated_cost_usd?: number | null; idempotency_key: string; created_at?: string; updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["generation_jobs"]["Insert"]>;
+        Relationships: [];
+      };
+      generation_steps: {
+        Row: {
+          id: string; job_id: string; user_id: string; kind: "article" | "hero_image" | "inline_image"; position: number;
+          status: "pending" | "running" | "completed" | "failed" | "cancelled"; attempt: number; provider_slug: string;
+          model_key: string; error_code: string | null; error_message: string | null; started_at: string | null;
+          completed_at: string | null; created_at: string; updated_at: string;
+        };
+        Insert: {
+          id?: string; job_id: string; user_id: string; kind: "article" | "hero_image" | "inline_image"; position?: number;
+          status?: "pending" | "running" | "completed" | "failed" | "cancelled"; attempt?: number; provider_slug: string;
+          model_key: string; error_code?: string | null; error_message?: string | null; started_at?: string | null;
+          completed_at?: string | null; created_at?: string; updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["generation_steps"]["Insert"]>;
+        Relationships: [];
+      };
+      content_assets: {
+        Row: { id: string; job_id: string; user_id: string; step_id: string | null; storage_path: string; mime_type: string; alt_text: string; position: number; created_at: string };
+        Insert: { id?: string; job_id: string; user_id: string; step_id?: string | null; storage_path: string; mime_type: string; alt_text: string; position?: number; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["content_assets"]["Insert"]>;
+        Relationships: [];
+      };
+      usage_ledger: {
+        Row: { id: number; job_id: string; user_id: string; provider_slug: string; model_key: string; unit: "input_million_tokens" | "output_million_tokens" | "image" | "request"; quantity: number; estimated_cost_usd: number | null; provider_request_id: string | null; created_at: string };
+        Insert: { id?: never; job_id: string; user_id: string; provider_slug: string; model_key: string; unit: "input_million_tokens" | "output_million_tokens" | "image" | "request"; quantity: number; estimated_cost_usd?: number | null; provider_request_id?: string | null; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["usage_ledger"]["Insert"]>;
+        Relationships: [];
       };
     };
     Views: Record<string, never>;

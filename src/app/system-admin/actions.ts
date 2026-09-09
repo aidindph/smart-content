@@ -1,7 +1,7 @@
 "use server";
 
 import { randomBytes } from "node:crypto";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { z } from "zod";
 import { invitationTokenHash } from "@/lib/auth/invitations";
 import { requireSystemAdmin } from "@/lib/auth/guards";
@@ -71,6 +71,7 @@ export async function setRegistrationAction(formData: FormData) {
   const enabled = booleanValue.parse(formData.get("enabled")) === "true";
   const { error } = await supabase.from("system_settings").update({ registration_enabled: enabled, updated_by: profile.id }).eq("id", 1);
   if (error) throw new Error("تغییر وضعیت ثبت‌نام انجام نشد.");
+  updateTag("registration-settings");
   revalidatePath("/login");
   revalidatePath("/system-admin");
 }

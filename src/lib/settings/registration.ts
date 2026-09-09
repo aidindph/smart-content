@@ -1,11 +1,11 @@
+import { unstable_cache } from "next/cache";
 import { hasSupabaseConfig } from "@/lib/supabase/config";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
-export async function isRegistrationEnabled() {
+const readRegistrationEnabled = unstable_cache(async () => {
   if (!hasSupabaseConfig()) return false;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
+  const { data, error } = await createAdminClient()
     .from("system_settings")
     .select("registration_enabled")
     .eq("id", 1)
@@ -13,4 +13,8 @@ export async function isRegistrationEnabled() {
 
   if (error) return false;
   return data.registration_enabled;
+}, ["registration-enabled"], { revalidate: 60, tags: ["registration-settings"] });
+
+export async function isRegistrationEnabled() {
+  return readRegistrationEnabled();
 }

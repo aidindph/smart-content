@@ -1,9 +1,9 @@
 alter table public.gsc_connections
-  add column auth_type text not null default 'oauth' check (auth_type in ('oauth', 'service_account')),
-  add column encrypted_service_account text,
-  add column service_account_iv text,
-  add column service_account_tag text,
-  add column service_account_key_version text;
+  add column if not exists auth_type text not null default 'oauth',
+  add column if not exists encrypted_service_account text,
+  add column if not exists service_account_iv text,
+  add column if not exists service_account_tag text,
+  add column if not exists service_account_key_version text;
 
 alter table public.gsc_connections
   alter column encrypted_access_token drop not null,
@@ -16,10 +16,17 @@ alter table public.gsc_connections
   alter column refresh_key_version drop not null,
   alter column token_expires_at drop not null;
 
-alter table public.gsc_connections add constraint gsc_credentials_complete check (
-  (auth_type = 'oauth' and encrypted_access_token is not null and encrypted_refresh_token is not null and token_expires_at is not null)
-  or
-  (auth_type = 'service_account' and encrypted_service_account is not null and service_account_iv is not null and service_account_tag is not null and service_account_key_version is not null)
-);
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'gsc_auth_type_valid') then
+    alter table public.gsc_connections add constraint gsc_auth_type_valid check (auth_type in ('oauth', 'service_account'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'gsc_credentials_complete') then
+    alter table public.gsc_connections add constraint gsc_credentials_complete check (
+      (auth_type = 'oauth' and encrypted_access_token is not null and encrypted_refresh_token is not null and token_expires_at is not null)
+      or
+      (auth_type = 'service_account' and encrypted_service_account is not null and service_account_iv is not null and service_account_tag is not null and service_account_key_version is not null)
+    );
+  end if;
+end $$;
 
 grant select (auth_type) on public.gsc_connections to authenticated;

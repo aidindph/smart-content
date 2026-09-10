@@ -34,7 +34,6 @@ const schema = z.object({
   imageTopics: z.string().max(2000).default(""),
   generateImages: z.string().optional(),
   textConnectionId: z.string().regex(/^(user|system):[0-9a-f-]{36}$/i, "اتصال متن معتبر نیست."),
-  textModel: z.string().trim().min(2, "شناسهٔ مدل متن را وارد کنید.").max(200),
   imageCount: z.coerce.number().int().min(0).max(4).default(0),
   imageConnectionId: z.string().regex(/^(user|system):[0-9a-f-]{36}$/i).optional().or(z.literal("")),
   imageModel: z.string().trim().max(200).default(""),
@@ -44,14 +43,14 @@ const schema = z.object({
   }
 });
 
-type KeyRow = { id: string; provider_id: string; is_active: boolean; test_status: "valid" | "invalid" | "untested"; deleted_at: string | null };
+type KeyRow = { id: string; provider_id: string; is_active: boolean; test_status: "valid" | "invalid" | "untested"; deleted_at: string | null; default_text_model: string | null };
 
 async function resolveCredential(userId: string, connectionId: string) {
   const admin = createAdminClient();
   const [source, keyId] = connectionId.split(":") as ["user" | "system", string];
   const query = source === "user"
-    ? admin.from("user_api_keys").select("id, provider_id, is_active, test_status, deleted_at").eq("id", keyId).eq("user_id", userId)
-    : admin.from("system_api_keys").select("id, provider_id, is_active, test_status, deleted_at").eq("id", keyId);
+    ? admin.from("user_api_keys").select("id, provider_id, is_active, test_status, deleted_at, default_text_model").eq("id", keyId).eq("user_id", userId)
+    : admin.from("system_api_keys").select("id, provider_id, is_active, test_status, deleted_at, default_text_model").eq("id", keyId);
   const { data: key } = await query.single<KeyRow>();
   if (!key || key.deleted_at || !key.is_active || key.test_status !== "valid") throw new Error("کلید انتخاب‌شده فعال و تأییدشده نیست.");
   const { data: provider } = await admin.from("providers").select("id, slug, enabled").eq("id", key.provider_id).single<{ id: string; slug: string; enabled: boolean }>();
@@ -101,7 +100,8 @@ export async function createContentAction(_state: CreateContentState, formData: 
   try {
     textConnection = await resolveCredential(profile.id, parsed.data.textConnectionId);
     getTextProviderAdapter(textConnection.provider.slug);
-    await validateModel(textConnection.provider.id, parsed.data.textModel, "text");
+    if (!textConnection.key.default_text_model) throw new Error("برای این اتصال هنوز مدل نگارش معتبر تعیین نشده است. کلید را از بخش اتصال‌ها دوباره آزمایش کنید.");
+    await validateModel(textConnection.provider.id, textConnection.key.default_text_model, "text");
     if (parsed.data.generateImages === "on" && parsed.data.imageCount && parsed.data.imageConnectionId) {
       imageConnection = await resolveCredential(profile.id, parsed.data.imageConnectionId);
       getImageProviderAdapter(imageConnection.provider.slug);
@@ -152,7 +152,7 @@ export async function createContentAction(_state: CreateContentState, formData: 
     text_api_key_id: textConnection.source === "user" ? textConnection.key.id : null,
     text_system_api_key_id: textConnection.source === "system" ? textConnection.key.id : null,
     text_provider_slug: textConnection.provider.slug,
-    text_model: parsed.data.textModel,
+    text_model: textConnection.key.default_text_model,
     image_api_key_id: imageConfigured && imageConnection!.source === "user" ? imageConnection!.key.id : null,
     image_system_api_key_id: imageConfigured && imageConnection!.source === "system" ? imageConnection!.key.id : null,
     image_provider_slug: imageConfigured ? imageConnection!.provider.slug : null,
@@ -169,7 +169,7 @@ export async function createContentAction(_state: CreateContentState, formData: 
   }
 
   const steps = [
-    { job_id: jobId, user_id: profile.id, kind: "article" as const, position: 0, provider_slug: textConnection.provider.slug, model_key: parsed.data.textModel },
+    { job_id: jobId, user_id: profile.id, kind: "article" as const, position: 0, provider_slug: textConnection.provider.slug, model_key: textConnection.key.default_text_model! },
     ...Array.from({ length: imageConfigured ? parsed.data.imageCount : 0 }, (_, index) => ({
       job_id: jobId, user_id: profile.id, kind: index === 0 ? "hero_image" as const : "inline_image" as const,
       position: index, provider_slug: imageConnection!.provider.slug, model_key: parsed.data.imageModel,

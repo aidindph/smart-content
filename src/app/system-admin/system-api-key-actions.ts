@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSystemAdmin } from "@/lib/auth/guards";
 import { getProviderAdapter } from "@/lib/providers/registry";
+import { selectDefaultTextModel } from "@/lib/providers/model-selection";
 import { systemApiKeyContext } from "@/lib/security/api-key-vault";
 import { createKeyHint, encryptSecret } from "@/lib/security/encryption";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -45,6 +46,8 @@ export async function saveSystemApiKeyAction(
   } catch {
     return { status: "error", message: "کلید معتبر است، اما دریافت فهرست مدل‌ها انجام نشد؛ دوباره تلاش کنید." };
   }
+  const defaultTextModel = selectDefaultTextModel(provider.slug, availableModels);
+  if (!defaultTextModel) return { status: "error", message: "این کلید معتبر است، اما مدل نگارشیِ قابل‌استفاده‌ای برای آن پیدا نشد." };
 
   const { data: existing } = await admin.from("system_api_keys").select("id")
     .eq("provider_id", provider.id).is("deleted_at", null).maybeSingle<{ id: string }>();
@@ -61,6 +64,7 @@ export async function saveSystemApiKeyAction(
     test_status: "valid" as const,
     last_tested_at: new Date().toISOString(),
     last_error_code: null,
+    default_text_model: defaultTextModel.id,
     updated_by: profile.id,
   };
   const result = existing
@@ -81,7 +85,7 @@ export async function saveSystemApiKeyAction(
   revalidatePath("/system-admin");
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/content/new");
-  return { status: "success", message: `${provider.name} متصل شد و ${new Intl.NumberFormat("fa-IR").format(availableModels.length)} مدل برای همهٔ کاربران آماده شد.` };
+  return { status: "success", message: `${provider.name} متصل شد. مدل نگارش «${defaultTextModel.name}» برای این اتصال قفل شد.` };
 }
 
 export async function toggleSystemApiKeyAction(formData: FormData) {

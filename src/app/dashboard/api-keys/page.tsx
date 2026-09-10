@@ -17,6 +17,7 @@ type UserApiKey = {
   is_active: boolean;
   test_status: "valid" | "invalid" | "untested";
   last_tested_at: string | null;
+  default_text_model: string | null;
   created_at: string;
 };
 
@@ -39,9 +40,9 @@ export default async function ApiKeysPage({ searchParams }: { searchParams: Prom
   const [{ data: providers }, { data: keys }, { data: systemKeys }] = await Promise.all([
     supabase.from("providers").select("id, name, slug, enabled, supports_byok").order("name").returns<Provider[]>(),
     supabase.from("user_api_keys")
-      .select("id, provider_id, label, key_hint, is_active, test_status, last_tested_at, created_at")
+      .select("id, provider_id, label, key_hint, is_active, test_status, last_tested_at, default_text_model, created_at")
       .is("deleted_at", null).order("created_at", { ascending: false }).returns<UserApiKey[]>(),
-    admin.from("system_api_keys").select("id, provider_id, label, key_hint, is_active, test_status, last_tested_at, created_at")
+    admin.from("system_api_keys").select("id, provider_id, label, key_hint, is_active, test_status, last_tested_at, default_text_model, created_at")
       .is("deleted_at", null).eq("is_active", true).eq("test_status", "valid").order("created_at", { ascending: false }).returns<UserApiKey[]>(),
   ]);
 
@@ -90,6 +91,7 @@ export default async function ApiKeysPage({ searchParams }: { searchParams: Prom
                       <span className={`text-xs font-bold ${key.test_status === "valid" ? "text-brand" : key.test_status === "invalid" ? "text-danger" : "text-muted"}`}>{testLabel}</span>
                     </div>
                     <p className="mt-2 text-sm text-muted"><span>{provider?.name ?? "ارائه‌دهندهٔ حذف‌شده"}</span><span className="mx-2">·</span><span dir="ltr">{key.key_hint}</span></p>
+                    {key.default_text_model ? <p className="mt-1 text-xs text-muted">مدل نگارش قفل‌شده: <span dir="ltr">{key.default_text_model}</span></p> : <p className="mt-1 text-xs text-danger">مدل نگارش این اتصال تعیین نشده است؛ دکمهٔ «آزمایش» را بزنید.</p>}
                     {key.last_tested_at ? <p className="mt-1 text-xs text-muted">آخرین آزمایش: {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(key.last_tested_at))}</p> : null}
                   </div>
                   <div className="flex flex-wrap gap-2">

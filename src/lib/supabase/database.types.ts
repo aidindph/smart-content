@@ -54,6 +54,7 @@ export type Database = {
           test_status: "valid" | "invalid" | "untested";
           last_tested_at: string | null;
           last_error_code: string | null;
+          default_text_model: string | null;
           created_at: string;
           updated_at: string;
           deleted_at: string | null;
@@ -72,6 +73,7 @@ export type Database = {
           test_status?: "valid" | "invalid" | "untested";
           last_tested_at?: string | null;
           last_error_code?: string | null;
+          default_text_model?: string | null;
           created_at?: string;
           updated_at?: string;
           deleted_at?: string | null;
@@ -101,6 +103,7 @@ export type Database = {
           test_status: "valid" | "invalid" | "untested";
           last_tested_at: string | null;
           last_error_code: string | null;
+          default_text_model: string | null;
           created_by: string | null;
           updated_by: string | null;
           created_at: string;
@@ -120,6 +123,7 @@ export type Database = {
           test_status?: "valid" | "invalid" | "untested";
           last_tested_at?: string | null;
           last_error_code?: string | null;
+          default_text_model?: string | null;
           created_by?: string | null;
           updated_by?: string | null;
           created_at?: string;

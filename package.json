@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --no-warnings --test --experimental-strip-types src/lib/security/encryption.test.ts src/lib/content/prompt.test.ts",
+    "test": "node --no-warnings --test --experimental-strip-types src/lib/security/encryption.test.ts src/lib/content/prompt.test.ts src/lib/providers/model-selection.test.ts",
     "admin:bootstrap": "node scripts/bootstrap-admin.mjs"
   },
   "dependencies": {

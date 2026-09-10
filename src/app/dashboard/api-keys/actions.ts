@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth/guards";
 import { getProviderAdapter } from "@/lib/providers/registry";
+import { selectDefaultTextModel } from "@/lib/providers/model-selection";
 import { apiKeyContext, loadUserApiKey } from "@/lib/security/api-key-vault";
 import { createKeyHint, encryptSecret } from "@/lib/security/encryption";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -93,6 +94,8 @@ export async function saveApiKeyAction(
   } catch {
     return { status: "error", message: "کلید معتبر است، اما دریافت فهرست مدل‌ها انجام نشد؛ دوباره تلاش کنید." };
   }
+  const defaultTextModel = selectDefaultTextModel(provider.slug, availableModels);
+  if (!defaultTextModel) return { status: "error", message: "این کلید معتبر است، اما هیچ مدل نگارشیِ قابل‌استفاده‌ای برای آن پیدا نشد." };
 
   const keyId = existingId ?? randomUUID();
   const encrypted = encryptSecret(parsed.data.apiKey, apiKeyContext(profile.id, keyId, provider.id));
@@ -107,6 +110,7 @@ export async function saveApiKeyAction(
     test_status: "valid" as const,
     last_tested_at: new Date().toISOString(),
     last_error_code: null,
+    default_text_model: defaultTextModel.id,
   };
 
   const result = existingId
@@ -135,7 +139,7 @@ export async function saveApiKeyAction(
   revalidatePath("/dashboard/content/new");
   return {
     status: "success",
-    message: existingId ? "کلید تازه آزمایش و جایگزین شد." : "کلید آزمایش و به‌صورت رمزنگاری‌شده ذخیره شد.",
+    message: `${existingId ? "کلید تازه آزمایش و جایگزین شد" : "کلید آزمایش و به‌صورت رمزنگاری‌شده ذخیره شد"}. مدل نگارش این اتصال روی «${defaultTextModel.name}» قفل شد.`,
   };
 }
 
@@ -147,14 +151,35 @@ export async function testApiKeyAction(formData: FormData) {
   const { data: provider } = await admin.from("providers").select("slug").eq("id", stored.providerId).single<{ slug: string }>();
   if (!provider) redirect("/dashboard/api-keys?error=provider");
 
-  const connection = await getProviderAdapter(provider.slug).validateKey(stored.apiKey);
+  const adapter = getProviderAdapter(provider.slug);
+  const connection = await adapter.validateKey(stored.apiKey);
+  let defaultTextModel = undefined;
+  if (connection.ok) {
+    try {
+      const availableModels = (await adapter.listModels(stored.apiKey)).slice(0, 200);
+      defaultTextModel = selectDefaultTextModel(provider.slug, availableModels);
+      if (availableModels.length) {
+        await admin.from("provider_models").upsert(availableModels.map((model) => ({
+          provider_id: stored.providerId,
+          model_key: model.id,
+          display_name: model.name,
+          kind: model.kind,
+          enabled: true,
+        })), { onConflict: "provider_id,model_key" });
+      }
+    } catch {
+      // اعتبار اتصال حفظ می‌شود؛ آخرین مدل قفل‌شده تا آزمایش بعدی باقی می‌ماند.
+    }
+  }
   await admin.from("user_api_keys").update({
     test_status: connection.ok ? "valid" : "invalid",
     last_tested_at: new Date().toISOString(),
     last_error_code: connection.ok ? null : connection.code,
+    ...(defaultTextModel ? { default_text_model: defaultTextModel.id } : {}),
   }).eq("id", keyId).eq("user_id", profile.id);
 
   revalidatePath("/dashboard/api-keys");
+  revalidatePath("/dashboard/content/new");
   redirect(`/dashboard/api-keys?${connection.ok ? "notice=tested" : "error=test"}`);
 }
 

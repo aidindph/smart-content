@@ -5,7 +5,7 @@ import { AppIcon } from "@/components/app-icon";
 import { createContentAction, type CreateContentState } from "./actions";
 
 type ModelOption = { key: string; name: string; kind: "text" | "image" | "multimodal" };
-type KeyOption = { id: string; label: string; key_hint: string; providerName: string; providerSlug: string; source: "user" | "system"; models: ModelOption[] };
+type KeyOption = { id: string; label: string; key_hint: string; providerName: string; providerSlug: string; source: "user" | "system"; textModel?: ModelOption; models: ModelOption[] };
 const initialState: CreateContentState = { status: "idle", message: "" };
 const densityOptions = [.5, .75, 1, 1.25, 1.5, 2, 2.5, 3];
 
@@ -15,7 +15,7 @@ function DensitySelect({ name, defaultValue }: { name: string; defaultValue: num
 
 export function ContentRequestForm({ idempotencyKey, keys, initialTopic = "", initialKeywords = "" }: { idempotencyKey: string; keys: KeyOption[]; initialTopic?: string; initialKeywords?: string }) {
   const [state, action, pending] = useActionState(createContentAction, initialState);
-  const textCapableKeys = useMemo(() => keys.filter((key) => key.models.some((model) => model.kind !== "image")), [keys]);
+  const textCapableKeys = useMemo(() => keys.filter((key) => Boolean(key.textModel)), [keys]);
   const personalTextKeys = useMemo(() => textCapableKeys.filter((key) => key.source === "user"), [textCapableKeys]);
   const systemTextKeys = useMemo(() => textCapableKeys.filter((key) => key.source === "system"), [textCapableKeys]);
   const [textSource, setTextSource] = useState<"user" | "system">(personalTextKeys.length ? "user" : "system");
@@ -24,7 +24,6 @@ export function ContentRequestForm({ idempotencyKey, keys, initialTopic = "", in
   const [generateImages, setGenerateImages] = useState(false);
   const visibleTextKeys = textSource === "user" ? personalTextKeys : systemTextKeys;
   const textConnection = visibleTextKeys.find((key) => key.id === textConnectionId) ?? visibleTextKeys[0];
-  const textModels = textConnection?.models.filter((model) => model.kind !== "image") ?? [];
   const imageKeys = useMemo(() => keys.filter((key) => key.models.some((model) => model.kind !== "text")), [keys]);
   const imageConnection = imageKeys.find((key) => key.id === imageConnectionId);
   const imageModels = imageConnection?.models.filter((model) => model.kind !== "text") ?? [];
@@ -79,10 +78,10 @@ export function ContentRequestForm({ idempotencyKey, keys, initialTopic = "", in
       </div> : null}
       <div className="mt-5 grid gap-5 md:grid-cols-2">
         <label className="grid gap-2 text-sm font-bold">اتصال هوش مصنوعی<select className="field" name="textConnectionId" onChange={(event) => setTextConnectionId(event.target.value)} value={textConnectionId} required>{visibleTextKeys.map((key) => <option key={key.id} value={key.id}>{key.providerName} · {key.label} · {key.key_hint}</option>)}</select></label>
-        <label className="grid gap-2 text-sm font-bold">مدل تولید متن<select className="field" key={textConnectionId} name="textModel" required>{textModels.map((model) => <option key={model.key} value={model.key}>{model.name}</option>)}</select></label>
+        <div className="grid gap-2 text-sm font-bold"><span>مدل تولید متن</span><div className="field flex items-center bg-surface-subtle text-muted" dir="ltr">{textConnection?.textModel?.name ?? "مدل معتبر پیدا نشد"}</div></div>
       </div>
       {textConnection?.source === "system" ? <p className="connection-note"><AppIcon className="h-4 w-4" name="shield" />شما موتور سامانه را انتخاب کرده‌اید. برای استفاده از حساب خودتان، گزینهٔ «استفاده از کلید شخصی من» را بزنید.</p> : null}
-      {textConnection?.source === "user" ? <p className="connection-note"><AppIcon className="h-4 w-4" name="key" />کلید شخصی «{textConnection.label}» انتخاب شده است. فقط مدل‌های ارائه‌دهندهٔ {textConnection.providerName} در فهرست بالا نمایش داده می‌شوند.</p> : null}
+      {textConnection ? <p className="connection-note"><AppIcon className="h-4 w-4" name={textConnection.source === "user" ? "key" : "shield"} />مدل «{textConnection.textModel?.name}» هنگام ثبت یا آزمایش این کلید تعیین و قفل شده است. برای تغییر موتور، اتصال دیگری را انتخاب کنید.</p> : null}
     </section>
 
     <section className="form-card">
@@ -97,6 +96,6 @@ export function ContentRequestForm({ idempotencyKey, keys, initialTopic = "", in
     </section>
 
     {state.message ? <p aria-live="polite" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-danger">{state.message}</p> : null}
-    <div className="submit-bar"><div><strong>خروجی آمادهٔ انتشار</strong><small>مقاله، کد اچ‌تی‌ام‌ال، گزارش سئو و پیشنهاد تصاویر یکجا ساخته می‌شوند.</small></div><button className="primary-button min-w-52" disabled={pending || !textModels.length} type="submit">{pending ? "در حال ثبت…" : "ساخت مقالهٔ سئو شده"}<AppIcon className="h-5 w-5" name="sparkles" /></button></div>
+    <div className="submit-bar"><div><strong>خروجی آمادهٔ انتشار</strong><small>مقاله، کد اچ‌تی‌ام‌ال، گزارش سئو و پیشنهاد تصاویر یکجا ساخته می‌شوند.</small></div><button className="primary-button min-w-52" disabled={pending || !textConnection?.textModel} type="submit">{pending ? "در حال ثبت…" : "ساخت مقالهٔ سئو شده"}<AppIcon className="h-5 w-5" name="sparkles" /></button></div>
   </form>;
 }

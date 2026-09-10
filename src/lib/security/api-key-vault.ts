@@ -13,6 +13,7 @@ type StoredSecret = {
   key_version: string;
   is_active: boolean;
   deleted_at: string | null;
+  default_text_model: string | null;
 };
 
 type StoredSystemSecret = Omit<StoredSecret, "user_id">;
@@ -28,7 +29,7 @@ export function systemApiKeyContext(keyId: string, providerId: string) {
 export async function loadUserApiKey(userId: string, keyId: string) {
   const { data, error } = await createAdminClient()
     .from("user_api_keys")
-    .select("id, user_id, provider_id, encrypted_key, encryption_iv, encryption_tag, key_version, is_active, deleted_at")
+    .select("id, user_id, provider_id, encrypted_key, encryption_iv, encryption_tag, key_version, is_active, deleted_at, default_text_model")
     .eq("id", keyId)
     .eq("user_id", userId)
     .single<StoredSecret>();
@@ -39,6 +40,7 @@ export async function loadUserApiKey(userId: string, keyId: string) {
 
   return {
     providerId: data.provider_id,
+    defaultTextModel: data.default_text_model,
     apiKey: decryptSecret(
       {
         ciphertext: data.encrypted_key,
@@ -54,7 +56,7 @@ export async function loadUserApiKey(userId: string, keyId: string) {
 export async function loadSystemApiKey(keyId: string) {
   const { data, error } = await createAdminClient()
     .from("system_api_keys")
-    .select("id, provider_id, encrypted_key, encryption_iv, encryption_tag, key_version, is_active, deleted_at")
+    .select("id, provider_id, encrypted_key, encryption_iv, encryption_tag, key_version, is_active, deleted_at, default_text_model")
     .eq("id", keyId)
     .eq("test_status", "valid")
     .single<StoredSystemSecret>();
@@ -65,6 +67,7 @@ export async function loadSystemApiKey(keyId: string) {
 
   return {
     providerId: data.provider_id,
+    defaultTextModel: data.default_text_model,
     apiKey: decryptSecret(
       {
         ciphertext: data.encrypted_key,

@@ -12,15 +12,28 @@ type SyncIssue = { property?: string; searchType?: string; code: string; message
 const searchTypes = ["web", "image", "video", "news", "discover", "googleNews"] as const;
 type SearchType = (typeof searchTypes)[number];
 type PerformanceDimension = "date" | "query" | "page" | "country" | "device";
-const dimensionsBySearchType: Record<SearchType, PerformanceDimension[]> = {
-  web: ["date", "query", "page", "country", "device"],
-  image: ["date", "query", "page", "country", "device"],
-  video: ["date", "query", "page", "country", "device"],
-  news: ["date", "query", "page", "country", "device"],
-  // Discover has no search query and Google rejects grouping it by device.
-  discover: ["date", "page", "country"],
-  // Google News has no query dimension, but does expose device data.
-  googleNews: ["date", "page", "country", "device"],
+type DataScope = "total" | "query" | "page" | "query_page" | "country" | "device";
+type ReportSpec = { scope: DataScope; dimensions: PerformanceDimension[] };
+const commonReports: ReportSpec[] = [
+  { scope: "total", dimensions: ["date"] },
+  { scope: "page", dimensions: ["date", "page"] },
+  { scope: "country", dimensions: ["date", "country"] },
+];
+const queryReports: ReportSpec[] = [
+  { scope: "query", dimensions: ["date", "query"] },
+  { scope: "query_page", dimensions: ["date", "query", "page"] },
+];
+const deviceReport: ReportSpec = { scope: "device", dimensions: ["date", "device"] };
+const reportLabel: Record<DataScope, string> = { total: "آمار کل", query: "عبارت‌ها", page: "صفحه‌ها", query_page: "ارتباط عبارت و صفحه", country: "کشورها", device: "دستگاه‌ها" };
+const reportsBySearchType: Record<SearchType, ReportSpec[]> = {
+  web: [...commonReports, ...queryReports, deviceReport],
+  image: [...commonReports, ...queryReports, deviceReport],
+  video: [...commonReports, ...queryReports, deviceReport],
+  news: [...commonReports, ...queryReports, deviceReport],
+  // Discover does not expose query data and rejects grouping by device.
+  discover: commonReports,
+  // Google News does not expose search queries.
+  googleNews: [...commonReports, deviceReport],
 };
 const dateOnly = (date: Date) => date.toISOString().slice(0, 10);
 const addDays = (date: Date, days: number) => { const next = new Date(date); next.setUTCDate(next.getUTCDate() + days); return next; };
@@ -41,32 +54,34 @@ async function syncPerformance(accessToken: string, userId: string, property: Pr
   let rowsWritten = 0;
   const completedTypes: string[] = [];
   for (const searchType of searchTypes) {
-    const dimensions = dimensionsBySearchType[searchType];
     let typeSucceeded = true;
-    for (let windowStart = new Date(start); windowStart <= end; windowStart = addDays(windowStart, 30)) {
-      const windowEnd = new Date(Math.min(addDays(windowStart, 29).getTime(), end.getTime()));
-      let startRow = 0;
-      try {
-        do {
-          const payload = await googleApi<AnalyticsResponse>(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property.site_url)}/searchAnalytics/query`, accessToken, { method: "POST", body: JSON.stringify({ startDate: dateOnly(windowStart), endDate: dateOnly(windowEnd), dimensions, rowLimit: 25_000, startRow, dataState: "final", type: searchType }) });
-          const rows = payload.rows ?? [];
-          for (let offset = 0; offset < rows.length; offset += 1000) {
-            const batch = rows.slice(offset, offset + 1000).flatMap((row) => {
-              if (!row.keys?.[0]) return [];
-              const values = Object.fromEntries(dimensions.map((dimension, index) => [dimension, row.keys?.[index] ?? ""])) as Record<PerformanceDimension, string>;
-              return [{ property_id: property.id, user_id: userId, metric_date: values.date, query: values.query ?? "", page: values.page ?? "", country: values.country ?? "", device: values.device ?? "", search_type: searchType, clicks: row.clicks ?? 0, impressions: row.impressions ?? 0, ctr: row.ctr ?? 0, position: row.position ?? 0, synced_at: new Date().toISOString() }];
-            });
-            if (batch.length) { const { error } = await admin.from("gsc_metrics_daily").upsert(batch, { onConflict: "property_id,metric_date,query,page,country,device,search_type" }); if (error) throw error; rowsWritten += batch.length; }
-          }
-          startRow += rows.length;
-          if (rows.length < 25_000 || startRow >= 50_000) break;
-        } while (true);
-      } catch (error) {
-        typeSucceeded = false;
-        const known = error instanceof SearchConsoleError ? error : null;
-        issues.push({ property: property.site_url, searchType, code: known?.code ?? "sync_failed", message: known?.message ?? (error instanceof Error ? error.message : "همگام‌سازی این نوع جست‌وجو انجام نشد."), details: safeJson(known?.details) });
-        break;
+    for (const report of reportsBySearchType[searchType]) {
+      for (let windowStart = new Date(start); windowStart <= end; windowStart = addDays(windowStart, 30)) {
+        const windowEnd = new Date(Math.min(addDays(windowStart, 29).getTime(), end.getTime()));
+        let startRow = 0;
+        try {
+          do {
+            const payload = await googleApi<AnalyticsResponse>(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property.site_url)}/searchAnalytics/query`, accessToken, { method: "POST", body: JSON.stringify({ startDate: dateOnly(windowStart), endDate: dateOnly(windowEnd), dimensions: report.dimensions, rowLimit: 25_000, startRow, dataState: "final", type: searchType }) });
+            const rows = payload.rows ?? [];
+            for (let offset = 0; offset < rows.length; offset += 1000) {
+              const batch = rows.slice(offset, offset + 1000).flatMap((row) => {
+                if (!row.keys?.[0]) return [];
+                const values = Object.fromEntries(report.dimensions.map((dimension, index) => [dimension, row.keys?.[index] ?? ""])) as Partial<Record<PerformanceDimension, string>>;
+                return [{ property_id: property.id, user_id: userId, metric_date: values.date!, query: values.query ?? "", page: values.page ?? "", country: values.country ?? "", device: values.device ?? "", search_type: searchType, data_scope: report.scope, clicks: row.clicks ?? 0, impressions: row.impressions ?? 0, ctr: row.ctr ?? 0, position: row.position ?? 0, synced_at: new Date().toISOString() }];
+              });
+              if (batch.length) { const { error } = await admin.from("gsc_metrics_daily").upsert(batch, { onConflict: "property_id,metric_date,query,page,country,device,search_type,data_scope" }); if (error) throw error; rowsWritten += batch.length; }
+            }
+            startRow += rows.length;
+              if (rows.length < 25_000) break;
+          } while (true);
+        } catch (error) {
+          typeSucceeded = false;
+          const known = error instanceof SearchConsoleError ? error : null;
+          issues.push({ property: property.site_url, searchType, code: known?.code ?? "sync_failed", message: `${known?.message ?? (error instanceof Error ? error.message : "همگام‌سازی این گزارش انجام نشد.")} (گزارش ${reportLabel[report.scope]})`, details: safeJson(known?.details) });
+          break;
+        }
       }
+      if (!typeSucceeded) break;
     }
     if (typeSucceeded) completedTypes.push(searchType);
   }
@@ -88,7 +103,7 @@ export async function syncSearchConsoleForUser(userId: string, triggerType: "man
     const sites = await googleApi<SitesResponse>("https://www.googleapis.com/webmasters/v3/sites", accessToken);
     for (const site of sites.siteEntry ?? []) if (site.siteUrl) await admin.from("gsc_properties").upsert({ connection_id: connection.id, user_id: userId, site_url: site.siteUrl, permission_level: site.permissionLevel ?? "unknown" }, { onConflict: "user_id,site_url" });
     const { data: properties } = await admin.from("gsc_properties").select("id, site_url").eq("user_id", userId).eq("selected", true).returns<Property[]>();
-    const { data: latest } = await admin.from("gsc_metrics_daily").select("metric_date").eq("user_id", userId).order("metric_date", { ascending: false }).limit(1).maybeSingle<{ metric_date: string }>();
+    const { data: latest } = await admin.from("gsc_metrics_daily").select("metric_date").eq("user_id", userId).eq("data_scope", "total").order("metric_date", { ascending: false }).limit(1).maybeSingle<{ metric_date: string }>();
     const end = addDays(new Date(), -3);
     const start = latest?.metric_date ? addDays(new Date(`${latest.metric_date}T00:00:00Z`), -3) : addDays(end, -486);
     for (const property of properties ?? []) {

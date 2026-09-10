@@ -70,7 +70,9 @@ export async function suggestTitlesAction(formData: FormData) {
   const admin = createAdminClient();
   const { data: property } = await admin.from("gsc_properties").select("id").eq("id", propertyId).eq("user_id", profile.id).single<{ id: string }>();
   if (!property) redirect("/dashboard/search-console?error=property");
-  const { data: metrics } = await admin.from("gsc_metrics_daily").select("query, page, clicks, impressions, ctr, position").eq("property_id", propertyId).eq("user_id", profile.id).eq("search_type", "web").order("impressions", { ascending: false }).limit(50_000).returns<Array<{ query: string; page: string; clicks: number; impressions: number; ctr: number; position: number }>>();
+  const { data: rawMetrics } = await admin.from("gsc_metrics_daily").select("query, page, data_scope, clicks, impressions, ctr, position").eq("property_id", propertyId).eq("user_id", profile.id).eq("search_type", "web").in("data_scope", ["query_page", "detail"]).order("impressions", { ascending: false }).limit(50_000).returns<Array<{ query: string; page: string; data_scope: string; clicks: number; impressions: number; ctr: number; position: number }>>();
+  const preferredMetrics = (rawMetrics ?? []).filter((row) => row.data_scope === "query_page");
+  const metrics = preferredMetrics.length ? preferredMetrics : (rawMetrics ?? []).filter((row) => row.data_scope === "detail");
   const aggregate = new Map<string, { query: string; page: string; clicks: number; impressions: number; weightedPosition: number }>();
   for (const row of metrics ?? []) {
     if (!row.query || !row.page) continue;

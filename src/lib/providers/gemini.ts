@@ -19,6 +19,8 @@ type GeminiResponse = {
   usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
 };
 
+const nonWritingModel = /(?:image|tts|transcribe|lyria|robotics|computer-use|deep-research|antigravity|nano-banana)/i;
+
 export class GeminiAdapter implements TextProviderAdapter, ImageProviderAdapter {
   readonly slug = "google-gemini" as const;
 
@@ -39,7 +41,7 @@ export class GeminiAdapter implements TextProviderAdapter, ImageProviderAdapter 
     const response = await providerFetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=100", { headers: this.headers(apiKey) }, 15_000);
     const payload = await safeJson<GeminiModelsResponse>(response);
     return (payload.models ?? [])
-      .filter((model) => model.name && model.supportedGenerationMethods?.includes("generateContent"))
+      .filter((model) => model.name && model.supportedGenerationMethods?.includes("generateContent") && !nonWritingModel.test(model.name))
       .map((model) => ({ id: model.name!.replace(/^models\//, ""), name: model.displayName ?? model.name!, kind: "multimodal" as const }));
   }
 

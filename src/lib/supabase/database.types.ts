@@ -214,8 +214,8 @@ export type Database = {
         Relationships: [];
       };
       gsc_metrics_daily: {
-        Row: { id: number; property_id: string; user_id: string; metric_date: string; query: string; page: string; country: string; device: string; search_type: string; clicks: number; impressions: number; ctr: number; position: number; synced_at: string };
-        Insert: { id?: never; property_id: string; user_id: string; metric_date: string; query?: string; page?: string; country?: string; device?: string; search_type?: string; clicks?: number; impressions?: number; ctr?: number; position?: number; synced_at?: string };
+        Row: { id: number; property_id: string; user_id: string; metric_date: string; query: string; page: string; country: string; device: string; search_type: string; data_scope: "detail" | "total" | "query" | "page" | "query_page" | "country" | "device"; clicks: number; impressions: number; ctr: number; position: number; synced_at: string };
+        Insert: { id?: never; property_id: string; user_id: string; metric_date: string; query?: string; page?: string; country?: string; device?: string; search_type?: string; data_scope?: "detail" | "total" | "query" | "page" | "query_page" | "country" | "device"; clicks?: number; impressions?: number; ctr?: number; position?: number; synced_at?: string };
         Update: Partial<Database["public"]["Tables"]["gsc_metrics_daily"]["Insert"]>;
         Relationships: [];
       };

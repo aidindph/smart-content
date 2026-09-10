@@ -9,7 +9,17 @@ export async function providerFetch(url: string, init: RequestInit, timeoutMs = 
 
   try {
     const response = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
-    if (!response.ok) throw errorFromStatus(response.status);
+    if (!response.ok) {
+      let providerDetail = "";
+      try {
+        const body = await response.text();
+        const parsed = JSON.parse(body) as { error?: { message?: string }; message?: string };
+        providerDetail = parsed.error?.message ?? parsed.message ?? body;
+      } catch {
+        providerDetail = "پاسخ خطای ارائه‌دهنده قابل خواندن نبود.";
+      }
+      throw errorFromStatus(response.status, providerDetail);
+    }
     return response;
   } catch (error) {
     if (error instanceof ProviderError) throw error;

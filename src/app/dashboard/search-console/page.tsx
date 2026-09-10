@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "مرکز تحلیل سرچ کنسو�
 type Connection = { id: string; google_email: string | null; auth_type: "oauth" | "service_account"; status: string; last_synced_at: string | null };
 type Property = { id: string; site_url: string; permission_level: string; selected: boolean; last_synced_at: string | null };
 type Suggestion = { id: string; source_query: string; source_page: string; suggested_title: string; suggestion_type: string; analysis: { reason?: string; angle?: string; search_intent?: string; meta_description?: string; competing_pages?: number }; evidence: { clicks?: number; impressions?: number; ctr?: number; position?: number }; score: number; status: "pending" | "accepted" | "rejected" };
-type Metric = { metric_date: string; query: string; page: string; country: string; device: string; search_type: string; clicks: number; impressions: number; ctr: number; position: number };
+type Metric = { metric_date: string; query: string; page: string; country: string; device: string; search_type: string; data_scope: "detail" | "total" | "query" | "page" | "query_page" | "country" | "device"; clicks: number; impressions: number; ctr: number; position: number };
 type Sitemap = { id: string; path: string; sitemap_type: string | null; is_pending: boolean; last_downloaded_at: string | null; warnings: number; errors: number; contents: unknown };
 type SyncRun = { id: string; trigger_type: string; status: "running" | "completed" | "partial" | "failed"; started_at: string; completed_at: string | null; rows_written: number; properties_synced: number; search_types: string[]; error_code: string | null; error_message: string | null; error_details: { issues?: Array<{ property?: string; searchType?: string; code: string; message: string }> } };
 type KeyRow = { id: string; provider_id: string; label: string; key_hint: string };
@@ -40,7 +40,7 @@ export default async function SearchConsolePage({ searchParams }: { searchParams
     supabase.from("gsc_connections").select("id, google_email, auth_type, status, last_synced_at").maybeSingle<Connection>(),
     supabase.from("gsc_properties").select("id, site_url, permission_level, selected, last_synced_at").order("site_url").returns<Property[]>(),
     supabase.from("title_suggestions").select("id, source_query, source_page, suggested_title, suggestion_type, analysis, evidence, score, status").order("score", { ascending: false }).limit(50).returns<Suggestion[]>(),
-    supabase.from("gsc_metrics_daily").select("metric_date, query, page, country, device, search_type, clicks, impressions, ctr, position").order("metric_date", { ascending: false }).limit(50_000).returns<Metric[]>(),
+    supabase.from("gsc_metrics_daily").select("metric_date, query, page, country, device, search_type, data_scope, clicks, impressions, ctr, position").order("metric_date", { ascending: false }).limit(50_000).returns<Metric[]>(),
     supabase.from("gsc_sitemaps").select("id, path, sitemap_type, is_pending, last_downloaded_at, warnings, errors, contents").order("errors", { ascending: false }).returns<Sitemap[]>(),
     supabase.from("gsc_sync_runs").select("id, trigger_type, status, started_at, completed_at, rows_written, properties_synced, search_types, error_code, error_message, error_details").order("started_at", { ascending: false }).limit(10).returns<SyncRun[]>(),
     supabase.from("user_api_keys").select("id, provider_id, label, key_hint").is("deleted_at", null).eq("is_active", true).eq("test_status", "valid").returns<KeyRow[]>(),
@@ -52,16 +52,26 @@ export default async function SearchConsolePage({ searchParams }: { searchParams
   const providerById = new Map((providers ?? []).map((provider) => [provider.id, provider]));
   const keyOptions = [...(systemKeys ?? []).flatMap((key) => { const provider = providerById.get(key.provider_id); return provider ? [{ ...key, connectionId: `system:${key.id}`, source: "system" as const, provider }] : []; }), ...(keys ?? []).flatMap((key) => { const provider = providerById.get(key.provider_id); return provider ? [{ ...key, connectionId: `user:${key.id}`, source: "user" as const, provider }] : []; })];
   const rows = metrics ?? [];
-  const clicks = rows.reduce((sum, row) => sum + Number(row.clicks), 0);
-  const impressions = rows.reduce((sum, row) => sum + Number(row.impressions), 0);
+  const reportRows = (scope: Metric["data_scope"], fallback: (row: Metric) => boolean) => {
+    const scoped = rows.filter((row) => row.data_scope === scope);
+    return scoped.length ? scoped : rows.filter(fallback);
+  };
+  const totalRows = reportRows("total", (row) => row.data_scope === "detail");
+  const queryRows = reportRows("query", (row) => row.data_scope === "detail" && Boolean(row.query));
+  const pageRows = reportRows("page", (row) => row.data_scope === "detail" && Boolean(row.page));
+  const countryRows = reportRows("country", (row) => row.data_scope === "detail" && Boolean(row.country));
+  const deviceRows = reportRows("device", (row) => row.data_scope === "detail" && Boolean(row.device));
+  const clicks = totalRows.reduce((sum, row) => sum + Number(row.clicks), 0);
+  const impressions = totalRows.reduce((sum, row) => sum + Number(row.impressions), 0);
   const ctr = impressions ? clicks / impressions : 0;
-  const position = impressions ? rows.reduce((sum, row) => sum + Number(row.position) * Number(row.impressions), 0) / impressions : 0;
-  const topQueries = aggregate(rows.filter((row) => row.search_type === "web"), (row) => row.query).slice(0, 10);
-  const topPages = aggregate(rows.filter((row) => row.search_type === "web"), (row) => row.page).slice(0, 8);
-  const devices = aggregate(rows, (row) => deviceLabel[row.device] ?? row.device);
-  const countries = aggregate(rows, (row) => countryLabel[row.country.toLowerCase()] ?? `کشور ${row.country.toUpperCase()}`).slice(0, 8);
-  const searchKinds = aggregate(rows, (row) => typeLabel[row.search_type] ?? row.search_type);
-  const daily = aggregate(rows, (row) => row.metric_date).sort((a, b) => a.key.localeCompare(b.key)).slice(-28);
+  const position = impressions ? totalRows.reduce((sum, row) => sum + Number(row.position) * Number(row.impressions), 0) / impressions : 0;
+  const topQueries = aggregate(queryRows.filter((row) => row.search_type === "web" && row.query), (row) => row.query).slice(0, 20);
+  const allPages = aggregate(pageRows.filter((row) => row.search_type === "web" && row.page), (row) => row.page);
+  const topPages = allPages.slice(0, 20);
+  const devices = aggregate(deviceRows.filter((row) => row.device), (row) => deviceLabel[row.device] ?? row.device);
+  const countries = aggregate(countryRows.filter((row) => row.country), (row) => countryLabel[row.country.toLowerCase()] ?? `کشور ${row.country.toUpperCase()}`).slice(0, 12);
+  const searchKinds = aggregate(totalRows, (row) => typeLabel[row.search_type] ?? row.search_type);
+  const daily = aggregate(totalRows, (row) => row.metric_date).sort((a, b) => a.key.localeCompare(b.key)).slice(-28);
   const maxDailyImpressions = Math.max(1, ...daily.map((item) => item.impressions));
   const latestRun = runs?.[0];
   const detail = typeof query.detail === "string" ? query.detail.slice(0, 500) : "";
@@ -81,7 +91,7 @@ export default async function SearchConsolePage({ searchParams }: { searchParams
 
       <section className="gsc-grid mt-6"><article className="content-card p-6"><div className="section-heading compact"><div><span>۲۸ روز اخیر ذخیره‌شده</span><h2>روند نمایش روزانه</h2></div></div>{daily.length ? <div className="gsc-chart">{daily.map((item) => <div key={item.key} title={`${item.key}: ${number(item.impressions)} نمایش`}><i style={{ height: `${Math.max(4, item.impressions / maxDailyImpressions * 100)}%` }} /><span>{new Intl.DateTimeFormat("fa-IR", { month: "numeric", day: "numeric" }).format(new Date(`${item.key}T00:00:00Z`))}</span></div>)}</div> : <p className="gsc-empty">هنوز داده‌ای برای نمایش نمودار وجود ندارد.</p>}</article><article className="content-card p-6"><div className="section-heading compact"><div><span>نوع حضور در گوگل</span><h2>سهم انواع جست‌وجو</h2></div></div><div className="gsc-breakdown">{searchKinds.map((item) => <div key={item.key}><span>{item.key}</span><b>{number(item.impressions)} نمایش</b><i><em style={{ width: `${impressions ? item.impressions / impressions * 100 : 0}%` }} /></i></div>)}</div></article></section>
 
-      <section className="gsc-grid mt-6"><article className="content-card overflow-hidden"><div className="section-heading"><div><span>عبارت‌هایی که کاربران جست‌وجو کرده‌اند</span><h2>عبارت‌های برتر</h2></div></div><div className="gsc-table"><div className="head"><span>عبارت</span><span>نمایش</span><span>کلیک</span><span>جایگاه</span></div>{topQueries.map((item) => <div key={item.key}><strong>{item.key}</strong><span>{number(item.impressions)}</span><span>{number(item.clicks)}</span><span>{number(item.position, 1)}</span></div>)}</div></article><article className="content-card overflow-hidden"><div className="section-heading"><div><span>صفحات ورودی از گوگل</span><h2>صفحات برتر</h2></div></div><div className="gsc-page-list">{topPages.map((item) => <div key={item.key}><a dir="ltr" href={item.key} rel="noreferrer" target="_blank">{item.key}</a><span>{number(item.impressions)} نمایش · {number(item.clicks)} کلیک · جایگاه {number(item.position, 1)}</span></div>)}</div></article></section>
+      <section className="gsc-grid mt-6"><article className="content-card overflow-hidden"><div className="section-heading"><div><span>گزارش مستقل عبارت‌ها؛ تا ۲۰ مورد برتر</span><h2>عبارت‌های برتر</h2></div></div><div className="gsc-table"><div className="head"><span>عبارت</span><span>نمایش</span><span>کلیک</span><span>جایگاه</span></div>{topQueries.map((item) => <div key={item.key}><strong>{item.key}</strong><span>{number(item.impressions)}</span><span>{number(item.clicks)}</span><span>{number(item.position, 1)}</span></div>)}</div></article><article className="content-card overflow-hidden"><div className="section-heading"><div><span>{number(allPages.length)} صفحهٔ یکتا؛ نمایش تا ۲۰ مورد برتر</span><h2>صفحات برتر</h2></div></div><div className="gsc-page-list">{topPages.map((item) => <div key={item.key}><a dir="ltr" href={item.key} rel="noreferrer" target="_blank">{item.key}</a><span>{number(item.impressions)} نمایش · {number(item.clicks)} کلیک · جایگاه {number(item.position, 1)}</span></div>)}</div></article></section>
 
       <section className="gsc-grid mt-6"><article className="content-card overflow-hidden"><div className="section-heading"><div><span>توزیع دستگاه</span><h2>کاربران چگونه جست‌وجو می‌کنند؟</h2></div></div><div className="gsc-device-grid">{devices.map((item) => <article key={item.key}><strong>{item.key}</strong><b>{number(item.impressions)}</b><span>نمایش · نرخ کلیک {number(item.ctr * 100, 1)}٪</span></article>)}</div></article><article className="content-card overflow-hidden"><div className="section-heading"><div><span>موقعیت جغرافیایی</span><h2>کشورهای برتر</h2></div></div><div className="gsc-breakdown p-5">{countries.map((item) => <div key={item.key}><span>{item.key}</span><b>{number(item.impressions)} نمایش</b><i><em style={{ width: `${impressions ? item.impressions / impressions * 100 : 0}%` }} /></i></div>)}</div></article></section>
 

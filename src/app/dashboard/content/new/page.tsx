@@ -33,8 +33,8 @@ export default async function NewContentPage({ searchParams }: { searchParams: P
     return { id: `${source}:${key.id}`, label: key.label, key_hint: key.key_hint, providerName: provider.name, providerSlug: provider.slug, source, models: providerModels };
   };
   const options = [
-    ...(systemKeys ?? []).map((key) => buildOption(key, "system")),
     ...(keys ?? []).map((key) => buildOption(key, "user")),
+    ...(systemKeys ?? []).map((key) => buildOption(key, "system")),
   ].filter((option): option is NonNullable<typeof option> => Boolean(option));
 
   return (

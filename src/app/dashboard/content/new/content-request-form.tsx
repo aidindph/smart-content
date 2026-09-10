@@ -15,15 +15,25 @@ function DensitySelect({ name, defaultValue }: { name: string; defaultValue: num
 
 export function ContentRequestForm({ idempotencyKey, keys, initialTopic = "", initialKeywords = "" }: { idempotencyKey: string; keys: KeyOption[]; initialTopic?: string; initialKeywords?: string }) {
   const [state, action, pending] = useActionState(createContentAction, initialState);
-  const [textConnectionId, setTextConnectionId] = useState(keys[0]?.id ?? "");
+  const textCapableKeys = useMemo(() => keys.filter((key) => key.models.some((model) => model.kind !== "image")), [keys]);
+  const personalTextKeys = useMemo(() => textCapableKeys.filter((key) => key.source === "user"), [textCapableKeys]);
+  const systemTextKeys = useMemo(() => textCapableKeys.filter((key) => key.source === "system"), [textCapableKeys]);
+  const [textSource, setTextSource] = useState<"user" | "system">(personalTextKeys.length ? "user" : "system");
+  const [textConnectionId, setTextConnectionId] = useState(personalTextKeys[0]?.id ?? systemTextKeys[0]?.id ?? "");
   const [imageConnectionId, setImageConnectionId] = useState("");
   const [generateImages, setGenerateImages] = useState(false);
-  const textConnection = keys.find((key) => key.id === textConnectionId) ?? keys[0];
+  const visibleTextKeys = textSource === "user" ? personalTextKeys : systemTextKeys;
+  const textConnection = visibleTextKeys.find((key) => key.id === textConnectionId) ?? visibleTextKeys[0];
   const textModels = textConnection?.models.filter((model) => model.kind !== "image") ?? [];
   const imageKeys = useMemo(() => keys.filter((key) => key.models.some((model) => model.kind !== "text")), [keys]);
   const imageConnection = imageKeys.find((key) => key.id === imageConnectionId);
   const imageModels = imageConnection?.models.filter((model) => model.kind !== "text") ?? [];
   const seededKeywords = initialKeywords.split(/[،,]/).map((item) => item.trim()).filter(Boolean);
+  const chooseTextSource = (source: "user" | "system") => {
+    const sourceKeys = source === "user" ? personalTextKeys : systemTextKeys;
+    setTextSource(source);
+    setTextConnectionId(sourceKeys[0]?.id ?? "");
+  };
 
   return <form action={action} className="mt-8 grid gap-6">
     <input name="idempotencyKey" type="hidden" value={idempotencyKey} />
@@ -62,12 +72,17 @@ export function ContentRequestForm({ idempotencyKey, keys, initialTopic = "", in
     </section>
 
     <section className="form-card">
-      <div className="form-card-title"><span className="bg-cyan-100 text-cyan-700"><AppIcon name="zap" /></span><div><small>مرحلهٔ ۳</small><h2>مدل هوش مصنوعی نگارش</h2><p>این مدل متن مقاله را می‌نویسد؛ اتصال سراسری را مدیر سامانه فراهم می‌کند.</p></div></div>
+      <div className="form-card-title"><span className="bg-cyan-100 text-cyan-700"><AppIcon name="zap" /></span><div><small>مرحلهٔ ۳</small><h2>موتور نگارش و منبع حساب</h2><p>{textConnection?.source === "user" ? "این مقاله با حساب و کلید شخصی شما تولید می‌شود." : "اتصال سراسری را مدیر سامانه فراهم می‌کند؛ در صورت داشتن کلید شخصی می‌توانید آن را انتخاب کنید."}</p></div></div>
+      {(personalTextKeys.length > 0 || systemTextKeys.length > 0) ? <div className="mt-5 flex flex-wrap gap-2" role="radiogroup" aria-label="منبع موتور نگارش">
+        {personalTextKeys.length ? <button aria-checked={textSource === "user"} className={textSource === "user" ? "primary-button text-sm" : "secondary-button text-sm"} onClick={() => chooseTextSource("user")} role="radio" type="button">استفاده از کلید شخصی من</button> : null}
+        {systemTextKeys.length ? <button aria-checked={textSource === "system"} className={textSource === "system" ? "primary-button text-sm" : "secondary-button text-sm"} onClick={() => chooseTextSource("system")} role="radio" type="button">استفاده از موتور سامانه</button> : null}
+      </div> : null}
       <div className="mt-5 grid gap-5 md:grid-cols-2">
-        <label className="grid gap-2 text-sm font-bold">اتصال هوش مصنوعی<select className="field" name="textConnectionId" onChange={(event) => setTextConnectionId(event.target.value)} value={textConnectionId} required>{keys.map((key) => <option key={key.id} value={key.id}>{key.providerName} · {key.source === "system" ? "سراسری سامانه" : key.label} · {key.key_hint}</option>)}</select></label>
+        <label className="grid gap-2 text-sm font-bold">اتصال هوش مصنوعی<select className="field" name="textConnectionId" onChange={(event) => setTextConnectionId(event.target.value)} value={textConnectionId} required>{visibleTextKeys.map((key) => <option key={key.id} value={key.id}>{key.providerName} · {key.label} · {key.key_hint}</option>)}</select></label>
         <label className="grid gap-2 text-sm font-bold">مدل تولید متن<select className="field" key={textConnectionId} name="textModel" required>{textModels.map((model) => <option key={model.key} value={model.key}>{model.name}</option>)}</select></label>
       </div>
-      {textConnection?.source === "system" ? <p className="connection-note"><AppIcon className="h-4 w-4" name="shield" />این اتصال توسط مدیر سامانه تأمین شده و نیازی به کلید شخصی ندارید.</p> : null}
+      {textConnection?.source === "system" ? <p className="connection-note"><AppIcon className="h-4 w-4" name="shield" />شما موتور سامانه را انتخاب کرده‌اید. برای استفاده از حساب خودتان، گزینهٔ «استفاده از کلید شخصی من» را بزنید.</p> : null}
+      {textConnection?.source === "user" ? <p className="connection-note"><AppIcon className="h-4 w-4" name="key" />کلید شخصی «{textConnection.label}» انتخاب شده است. فقط مدل‌های ارائه‌دهندهٔ {textConnection.providerName} در فهرست بالا نمایش داده می‌شوند.</p> : null}
     </section>
 
     <section className="form-card">

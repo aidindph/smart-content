@@ -99,17 +99,21 @@ async function cancellationRequested(jobId: string) {
 
 async function failJob(job: Job, error: unknown) {
   const providerError = error instanceof ProviderError ? error : undefined;
-  const canRetry = Boolean(providerError?.retryable && job.attempt < job.max_attempts);
   const code = providerError?.code ?? "unexpected";
   const message = providerError?.message ?? "اجرای درخواست با خطای پیش‌بینی‌نشده متوقف شد.";
   const admin = createAdminClient();
-  await admin.from("generation_steps").update({ status: "failed", error_code: code, error_message: message, completed_at: new Date().toISOString() })
+  const { data: current } = await admin.from("generation_jobs").select("cancel_requested").eq("id", job.id).single<{ cancel_requested: boolean }>();
+  const cancelled = Boolean(current?.cancel_requested);
+  const canRetry = !cancelled && Boolean(providerError?.retryable && job.attempt < job.max_attempts);
+  await admin.from("generation_steps").update(cancelled
+    ? { status: "cancelled", completed_at: new Date().toISOString() }
+    : { status: "failed", error_code: code, error_message: message, completed_at: new Date().toISOString() })
     .eq("job_id", job.id).eq("status", "running");
   await admin.from("generation_jobs").update({
-    status: canRetry ? "queued" : "failed",
-    current_step: canRetry ? "در انتظار تلاش دوباره" : "متوقف‌شده",
-    error_code: code,
-    error_message: message,
+    status: cancelled ? "cancelled" : canRetry ? "queued" : "failed",
+    current_step: cancelled ? "لغوشده" : canRetry ? "در انتظار تلاش دوباره" : "متوقف‌شده",
+    error_code: cancelled ? null : code,
+    error_message: cancelled ? null : message,
     locked_at: null,
     completed_at: canRetry ? null : new Date().toISOString(),
   }).eq("id", job.id);

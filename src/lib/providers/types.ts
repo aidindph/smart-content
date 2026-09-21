@@ -19,6 +19,7 @@ export type TextGenerationInput = {
   temperature?: number;
   maxOutputTokens?: number;
   signal?: AbortSignal;
+  onTextDelta?: (delta: string) => void | Promise<void>;
 };
 
 export type TextGenerationResult = {

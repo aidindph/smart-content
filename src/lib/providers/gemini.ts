@@ -28,6 +28,16 @@ export class GeminiAdapter implements TextProviderAdapter, ImageProviderAdapter 
     return { "x-goog-api-key": apiKey, "Content-Type": "application/json" };
   }
 
+  private textBody(input: TextGenerationInput) {
+    return JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: input.prompt }] }],
+      generationConfig: {
+        temperature: input.temperature ?? 0.7,
+        maxOutputTokens: input.maxOutputTokens ?? 6_000,
+      },
+    });
+  }
+
   async validateKey(apiKey: string): Promise<ConnectionTestResult> {
     try {
       await providerFetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", { headers: this.headers(apiKey) }, 12_000);
@@ -45,20 +55,71 @@ export class GeminiAdapter implements TextProviderAdapter, ImageProviderAdapter 
       .map((model) => ({ id: model.name!.replace(/^models\//, ""), name: model.displayName ?? model.name!, kind: "multimodal" as const }));
   }
 
+  private async generateTextStream(input: TextGenerationInput, model: string): Promise<TextGenerationResult> {
+    const response = await providerFetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
+      method: "POST",
+      headers: this.headers(input.apiKey),
+      body: this.textBody(input),
+      signal: input.signal,
+    }, 240_000);
+    if (!response.body) throw new ProviderError("جریان پاسخ مدل در دسترس نیست.", "unavailable", true);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let text = "";
+    let latest: GeminiResponse | undefined;
+
+    const consume = async (event: string) => {
+      const data = event.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
+      if (!data || data === "[DONE]") return;
+      let payload: GeminiResponse;
+      try {
+        payload = JSON.parse(data) as GeminiResponse;
+      } catch {
+        return;
+      }
+      latest = payload;
+      const raw = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+      const delta = raw.startsWith(text) ? raw.slice(text.length) : raw;
+      if (!delta) return;
+      text += delta;
+      await input.onTextDelta?.(delta);
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+      let divider = buffer.search(/\r?\n\r?\n/);
+      while (divider !== -1) {
+        const event = buffer.slice(0, divider);
+        buffer = buffer.slice(divider).replace(/^\r?\n\r?\n/, "");
+        await consume(event);
+        divider = buffer.search(/\r?\n\r?\n/);
+      }
+      if (done) break;
+    }
+    if (buffer.trim()) await consume(buffer);
+    if (!text.trim()) throw new ProviderError("پاسخ متنی خالی بود.", "invalid_response", false);
+    const candidate = latest?.candidates?.[0];
+    return {
+      text,
+      inputTokens: latest?.usageMetadata?.promptTokenCount ?? 0,
+      outputTokens: latest?.usageMetadata?.candidatesTokenCount ?? 0,
+      providerRequestId: latest?.responseId,
+      finishReason: candidate?.finishReason,
+    };
+  }
+
   async generateText(input: TextGenerationInput): Promise<TextGenerationResult> {
     const model = encodeURIComponent(input.model.replace(/^models\//, ""));
+    if (input.onTextDelta) return this.generateTextStream(input, model);
     const response = await providerFetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: this.headers(input.apiKey),
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: input.prompt }] }],
-        generationConfig: {
-          temperature: input.temperature ?? 0.7,
-          maxOutputTokens: input.maxOutputTokens ?? 6_000,
-        },
-      }),
+      body: this.textBody(input),
       signal: input.signal,
-    }, 55_000);
+    }, input.maxOutputTokens && input.maxOutputTokens <= 400 ? 30_000 : 120_000);
     const payload = await safeJson<GeminiResponse>(response);
     const candidate = payload.candidates?.[0];
     const text = candidate?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";

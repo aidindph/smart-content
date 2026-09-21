@@ -13,6 +13,7 @@ type Props = {
   steps: Step[];
   targetWords: number;
   imageCount: number;
+  preview: string | null;
 };
 
 function durationLabel(milliseconds: number) {
@@ -31,7 +32,7 @@ function stageState(step: Step | undefined, fallback: StageState): StageState {
   return fallback;
 }
 
-export function GenerationProgress({ job, steps, targetWords, imageCount }: Props) {
+export function GenerationProgress({ job, steps, targetWords, imageCount, preview }: Props) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -75,6 +76,10 @@ export function GenerationProgress({ job, steps, targetWords, imageCount }: Prop
 
       <div aria-label={`پیشرفت ${shownProgress} درصد`} aria-valuemax={100} aria-valuemin={0} aria-valuenow={shownProgress} className="generation-progress-track" role="progressbar"><i style={{ width: `${shownProgress}%` }} /></div>
       <p className="generation-progress-note">صفحه هر چند ثانیه به‌روزرسانی می‌شود. بستن آن فرایند ساخت را متوقف نمی‌کند.</p>
+      <article className="generation-ai-preview">
+        <div><span className="generation-live"><i /> پاسخ زندهٔ هوش مصنوعی</span><small>{preview ? "بخش‌های تازه با ادامهٔ نگارش به‌روزرسانی می‌شوند." : "مدل درخواست را دریافت کرده و نخستین بخش پاسخ به‌زودی نمایش داده می‌شود."}</small></div>
+        <p>{preview || "در حال برقراری جریان پاسخ…"}</p>
+      </article>
 
       <ol className="generation-stages">
         {stages.map((stage, index) => <li className={`is-${stage.state}`} key={stage.key}>

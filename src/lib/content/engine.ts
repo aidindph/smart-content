@@ -35,6 +35,7 @@ async function generateCompleteArticle(input: {
   model: string;
   prompt: string;
   maxOutputTokens: number;
+  onTextDelta?: (delta: string) => Promise<void>;
   onContinuation?: (part: number) => Promise<void>;
 }) {
   let result = await input.adapter.generateText({
@@ -42,6 +43,7 @@ async function generateCompleteArticle(input: {
     model: input.model,
     prompt: input.prompt,
     maxOutputTokens: input.maxOutputTokens,
+    onTextDelta: input.onTextDelta,
   });
   let article = result.text;
   let inputTokens = result.inputTokens;
@@ -55,6 +57,7 @@ async function generateCompleteArticle(input: {
       model: input.model,
       maxOutputTokens: input.maxOutputTokens,
       temperature: 0.55,
+      onTextDelta: input.onTextDelta,
       prompt: [
         input.prompt,
         "پاسخ قبلی به‌دلیل سقف خروجی نیمه‌کاره ماند. فقط ادامهٔ مستقیم همان مقاله را بنویس.",
@@ -152,29 +155,80 @@ export async function processGenerationJob(jobId: string, userId: string) {
     await admin.from("generation_steps").update({ status: "running", attempt: activeJob.attempt, started_at: now, error_code: null, error_message: null }).eq("id", articleStep.id);
     const articlePrompt = buildArticlePrompt({ topic: request.topic, keywords: request.keywords, language: request.language, audience: request.audience, tone: request.tone, targetWords: request.target_words, keywordTargets: request.keyword_targets, searchIntent: request.seo_settings.search_intent, contentType: request.seo_settings.content_type, pointOfView: request.seo_settings.point_of_view, faqCount: request.seo_settings.faq_count, requiredHeadings: request.required_headings, contentBrief: request.content_brief ?? undefined, callToAction: request.seo_settings.call_to_action, forbiddenTerms: request.seo_settings.forbidden_terms, internalLinks: request.seo_settings.internal_links });
     await admin.from("generation_jobs").update({ progress: 18, current_step: "نگارش مقاله بر پایهٔ ساختار سئو" }).eq("id", job.id);
+    let liveArticle = "";
+    let lastPreviewLength = 0;
+    let lastPreviewSavedAt = 0;
+    const saveLivePreview = async (force = false) => {
+      const now = Date.now();
+      if (!liveArticle || (!force && liveArticle.length - lastPreviewLength < 220 && now - lastPreviewSavedAt < 900)) return;
+      lastPreviewLength = liveArticle.length;
+      lastPreviewSavedAt = now;
+      const preview = liveArticle.length <= 5_000
+        ? liveArticle
+        : `${liveArticle.slice(0, 2_300)}\n\n… ادامهٔ پاسخ در حال دریافت است …\n\n${liveArticle.slice(-2_500)}`;
+      const receivedWords = liveArticle.trim().split(/\s+/).filter(Boolean).length;
+      const writingProgress = Math.min(50, Math.max(18, 18 + Math.round((Math.min(receivedWords, request.target_words) / request.target_words) * 32)));
+      await admin.from("generation_jobs").update({
+        output_markdown: preview,
+        progress: writingProgress,
+        current_step: `نگارش مقاله؛ ${new Intl.NumberFormat("fa-IR").format(receivedWords)} واژه دریافت شد`,
+      }).eq("id", job.id);
+    };
+    let previewInputTokens = 0;
+    let previewOutputTokens = 0;
+    const textAdapter = getTextProviderAdapter(textProvider.slug);
+    try {
+      await admin.from("generation_jobs").update({ progress: 16, current_step: "دریافت طرح اولیه از هوش مصنوعی" }).eq("id", job.id);
+      const outline = await textAdapter.generateText({
+        apiKey: textSecret.apiKey,
+        model: request.text_model,
+        temperature: 0.25,
+        maxOutputTokens: 260,
+        prompt: [
+          "برای نمایش پیش‌نمایش ساخت مقاله، فقط یک طرح خیلی کوتاه و کاربردی در سه تا پنج مورد بنویس.",
+          "این طرح باید عنوان‌های کلیدی و زاویهٔ سئو را نشان دهد؛ از مقدمه و متن کامل مقاله خودداری کن.",
+          `موضوع: ${request.topic}`,
+          `کلیدواژه‌ها: ${request.keywords.join("، ") || "ندارد"}`,
+          `مخاطب: ${request.audience}`,
+        ].join("\n"),
+      });
+      previewInputTokens = outline.inputTokens;
+      previewOutputTokens = outline.outputTokens;
+      liveArticle = `طرح اولیهٔ پیشنهادی هوش مصنوعی:\n${outline.text}\n\n———\nمتن کامل مقاله در حال نگارش است…\n\n`;
+      await saveLivePreview(true);
+    } catch {
+      await admin.from("generation_jobs").update({ progress: 18, current_step: "نگارش مقاله بر پایهٔ ساختار سئو" }).eq("id", job.id);
+    }
     const textResult = await generateCompleteArticle({
-      adapter: getTextProviderAdapter(textProvider.slug),
+      adapter: textAdapter,
       apiKey: textSecret.apiKey,
       model: request.text_model,
       prompt: articlePrompt,
       maxOutputTokens: Math.min(12_000, Math.max(2_000, Math.ceil(request.target_words * 2.2))),
+      onTextDelta: async (delta) => {
+        liveArticle += delta;
+        await saveLivePreview();
+      },
       onContinuation: async (part) => {
         await admin.from("generation_jobs").update({ progress: Math.min(48, 32 + part * 8), current_step: "تکمیل ادامهٔ مقاله، بخش " + (part + 1) }).eq("id", job.id);
       },
     });
+    await saveLivePreview(true);
     const title = extractArticleTitle(textResult.text, request.topic);
     const outputHtml = markdownToArticleHtml(textResult.text, request.language);
     const seoAnalysis = analyzeSeo(textResult.text, request.keyword_targets, request.target_words);
     const imageSuggestions = buildImageSuggestions(textResult.text, request.image_topics, request.image_count || Math.min(3, Math.max(1, request.image_topics.length)));
     await admin.from("generation_jobs").update({ progress: request.image_count ? 50 : 92, current_step: "کنترل سئو و آماده‌سازی کد انتشار" }).eq("id", job.id);
     const textPrices = await pricingFor(textProvider.id, request.text_model);
-    const inputQuantity = textResult.inputTokens / 1_000_000;
-    const outputQuantity = textResult.outputTokens / 1_000_000;
+    const totalInputTokens = textResult.inputTokens + previewInputTokens;
+    const totalOutputTokens = textResult.outputTokens + previewOutputTokens;
+    const inputQuantity = totalInputTokens / 1_000_000;
+    const outputQuantity = totalOutputTokens / 1_000_000;
     let estimatedCost = inputQuantity * (textPrices.get("input_million_tokens") ?? 0)
       + outputQuantity * (textPrices.get("output_million_tokens") ?? 0);
     await Promise.all([
       admin.from("generation_steps").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", articleStep.id),
-      admin.from("generation_jobs").update({ progress: request.image_count ? 55 : 100, current_step: request.image_count ? "ساخت تصاویر" : "تکمیل‌شده", output_title: title, output_markdown: textResult.text, output_html: outputHtml, seo_analysis: seoAnalysis, image_suggestions: imageSuggestions, input_tokens: textResult.inputTokens, output_tokens: textResult.outputTokens, estimated_cost_usd: estimatedCost }).eq("id", job.id),
+      admin.from("generation_jobs").update({ progress: request.image_count ? 55 : 100, current_step: request.image_count ? "ساخت تصاویر" : "تکمیل‌شده", output_title: title, output_markdown: textResult.text, output_html: outputHtml, seo_analysis: seoAnalysis, image_suggestions: imageSuggestions, input_tokens: totalInputTokens, output_tokens: totalOutputTokens, estimated_cost_usd: estimatedCost }).eq("id", job.id),
       admin.from("usage_ledger").insert([
         { job_id: job.id, user_id: userId, provider_slug: textProvider.slug, model_key: request.text_model, unit: "input_million_tokens", quantity: inputQuantity, estimated_cost_usd: inputQuantity * (textPrices.get("input_million_tokens") ?? 0), provider_request_id: textResult.providerRequestId ?? null },
         { job_id: job.id, user_id: userId, provider_slug: textProvider.slug, model_key: request.text_model, unit: "output_million_tokens", quantity: outputQuantity, estimated_cost_usd: outputQuantity * (textPrices.get("output_million_tokens") ?? 0), provider_request_id: textResult.providerRequestId ?? null },

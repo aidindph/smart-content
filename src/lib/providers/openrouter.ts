@@ -53,6 +53,7 @@ export class OpenRouterAdapter implements TextProviderAdapter {
     const choice = payload.choices?.[0];
     const text = choice?.message?.content ?? "";
     if (!text.trim()) throw new ProviderError("پاسخ متنی خالی بود.", "invalid_response", false);
+    await input.onTextDelta?.(text);
     return {
       text,
       inputTokens: payload.usage?.prompt_tokens ?? 0,

@@ -61,6 +61,7 @@ export class OpenAIAdapter implements TextProviderAdapter, ImageProviderAdapter 
     const payload = await safeJson<OpenAIResponse>(response);
     const text = payload.output_text ?? payload.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("") ?? "";
     if (!text.trim()) throw new ProviderError("پاسخ متنی خالی بود.", "invalid_response", false);
+    await input.onTextDelta?.(text);
     return {
       text,
       inputTokens: payload.usage?.input_tokens ?? 0,

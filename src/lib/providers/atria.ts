@@ -49,11 +49,12 @@ export class AtriaAdapter implements TextProviderAdapter {
         max_completion_tokens: input.maxOutputTokens ?? 6_000,
       }),
       signal: input.signal,
-    }, 80_000);
+    }, input.maxOutputTokens && input.maxOutputTokens <= 400 ? 30_000 : 240_000);
     const payload = await safeJson<AtriaResponse>(response);
     const choice = payload.choices?.[0];
     const text = choice?.message?.content ?? "";
     if (!text.trim()) throw new ProviderError("پاسخ متنی آتریا خالی بود.", "invalid_response", false);
+    await input.onTextDelta?.(text);
     return {
       text,
       inputTokens: payload.usage?.prompt_tokens ?? 0,

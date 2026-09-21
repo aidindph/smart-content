@@ -7,6 +7,7 @@ import { CopyButton } from "@/components/copy-button";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { cancelJobAction, rerunJobAction } from "../actions";
 import { JobRunner } from "./job-runner";
+import { GenerationProgress } from "./generation-progress";
 
 export const metadata: Metadata = { title: "جزئیات اجرای محتوا" };
 
@@ -52,7 +53,7 @@ export default async function JobDetailsPage({ params }: { params: Promise<{ job
         <article className="panel p-5"><p className="text-sm text-muted">تلاش</p><p className="mt-3 font-black">{job.attempt} از {job.max_attempts}</p></article>
       </section>
 
-      {active ? <section className="panel mt-6 p-6"><div className="flex items-center justify-between gap-4"><div><h2 className="font-black">{job.current_step ?? "آماده‌سازی"}</h2><p className="mt-2 text-sm text-muted">این صفحه خودکار تازه می‌شود؛ بستن صفحه رکورد اجرا را حذف نمی‌کند.</p></div><span className="h-4 w-4 animate-pulse rounded-full bg-brand" /></div><div className="mt-5 h-3 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-brand transition-all" style={{ width: `${job.progress}%` }} /></div></section> : null}
+      {active ? <GenerationProgress imageCount={request.image_count} job={job} steps={steps ?? []} targetWords={request.target_words} /> : null}
       {job.error_message ? <section className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-5 text-danger dark:border-red-900 dark:bg-red-950/30"><h2 className="font-black">علت توقف</h2><p className="mt-2 text-sm">{job.error_message}</p></section> : null}
 
       <section className="panel mt-6 p-6"><h2 className="text-xl font-black">تنظیمات ثابت این اجرا</h2><dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-muted">مخاطب</dt><dd className="mt-1 font-bold">{request.audience}</dd></div><div><dt className="text-muted">طول هدف</dt><dd className="mt-1 font-bold">{request.target_words} واژه</dd></div><div><dt className="text-muted">مدل متن</dt><dd className="mt-1 font-bold" dir="ltr">{request.text_provider_slug} · {request.text_model}</dd></div><div><dt className="text-muted">تصاویر</dt><dd className="mt-1 font-bold">{request.image_count}</dd></div></dl>{request.keywords.length ? <p className="mt-5 text-sm text-muted">کلیدواژه‌ها: {request.keywords.join("، ")}</p> : null}</section>

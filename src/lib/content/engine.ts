@@ -35,6 +35,7 @@ async function generateCompleteArticle(input: {
   model: string;
   prompt: string;
   maxOutputTokens: number;
+  onContinuation?: (part: number) => Promise<void>;
 }) {
   let result = await input.adapter.generateText({
     apiKey: input.apiKey,
@@ -48,6 +49,7 @@ async function generateCompleteArticle(input: {
   let providerRequestId = result.providerRequestId;
 
   for (let continuation = 0; continuation < 2 && truncatedFinishReason.test(result.finishReason ?? ""); continuation += 1) {
+    await input.onContinuation?.(continuation + 1);
     result = await input.adapter.generateText({
       apiKey: input.apiKey,
       model: input.model,
@@ -121,7 +123,7 @@ export async function processGenerationJob(jobId: string, userId: string) {
       .eq("id", jobId).eq("user_id", userId).eq("status", "running").eq("locked_at", current.locked_at);
   }
   const { data: job } = await admin.from("generation_jobs").update({
-    status: "running", locked_at: now, started_at: now, current_step: "نگارش مقاله", error_code: null,
+    status: "running", locked_at: now, started_at: now, progress: 6, current_step: "آماده‌سازی موتور و دستورالعمل مقاله", error_code: null,
     error_message: null,
   }).eq("id", jobId).eq("user_id", userId).eq("status", "queued").eq("cancel_requested", false)
     .select("id, request_id, user_id, attempt, max_attempts, cancel_requested").single<Job>();
@@ -139,6 +141,8 @@ export async function processGenerationJob(jobId: string, userId: string) {
     const articleStep = steps?.find((step) => step.kind === "article");
     if (!articleStep) throw new Error("مرحلهٔ نگارش در دسترس نیست.");
 
+    await admin.from("generation_jobs").update({ progress: 12, current_step: "بررسی اتصال و تنظیم راهبرد سئو" }).eq("id", job.id);
+
     const textSecret = request.text_api_key_id
       ? await loadUserApiKey(userId, request.text_api_key_id)
       : await loadSystemApiKey(request.text_system_api_key_id!);
@@ -147,17 +151,22 @@ export async function processGenerationJob(jobId: string, userId: string) {
 
     await admin.from("generation_steps").update({ status: "running", attempt: activeJob.attempt, started_at: now, error_code: null, error_message: null }).eq("id", articleStep.id);
     const articlePrompt = buildArticlePrompt({ topic: request.topic, keywords: request.keywords, language: request.language, audience: request.audience, tone: request.tone, targetWords: request.target_words, keywordTargets: request.keyword_targets, searchIntent: request.seo_settings.search_intent, contentType: request.seo_settings.content_type, pointOfView: request.seo_settings.point_of_view, faqCount: request.seo_settings.faq_count, requiredHeadings: request.required_headings, contentBrief: request.content_brief ?? undefined, callToAction: request.seo_settings.call_to_action, forbiddenTerms: request.seo_settings.forbidden_terms, internalLinks: request.seo_settings.internal_links });
+    await admin.from("generation_jobs").update({ progress: 18, current_step: "نگارش مقاله بر پایهٔ ساختار سئو" }).eq("id", job.id);
     const textResult = await generateCompleteArticle({
       adapter: getTextProviderAdapter(textProvider.slug),
       apiKey: textSecret.apiKey,
       model: request.text_model,
       prompt: articlePrompt,
       maxOutputTokens: Math.min(12_000, Math.max(2_000, Math.ceil(request.target_words * 2.2))),
+      onContinuation: async (part) => {
+        await admin.from("generation_jobs").update({ progress: Math.min(48, 32 + part * 8), current_step: "تکمیل ادامهٔ مقاله، بخش " + (part + 1) }).eq("id", job.id);
+      },
     });
     const title = extractArticleTitle(textResult.text, request.topic);
     const outputHtml = markdownToArticleHtml(textResult.text, request.language);
     const seoAnalysis = analyzeSeo(textResult.text, request.keyword_targets, request.target_words);
     const imageSuggestions = buildImageSuggestions(textResult.text, request.image_topics, request.image_count || Math.min(3, Math.max(1, request.image_topics.length)));
+    await admin.from("generation_jobs").update({ progress: request.image_count ? 50 : 92, current_step: "کنترل سئو و آماده‌سازی کد انتشار" }).eq("id", job.id);
     const textPrices = await pricingFor(textProvider.id, request.text_model);
     const inputQuantity = textResult.inputTokens / 1_000_000;
     const outputQuantity = textResult.outputTokens / 1_000_000;

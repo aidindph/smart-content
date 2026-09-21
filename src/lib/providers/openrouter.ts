@@ -6,7 +6,7 @@ import type { ConnectionTestResult, ProviderModel, TextGenerationInput, TextGene
 type OpenRouterModelsResponse = { data?: Array<{ id?: string; name?: string }> };
 type OpenRouterResponse = {
   id?: string;
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 };
 
@@ -50,13 +50,15 @@ export class OpenRouterAdapter implements TextProviderAdapter {
       signal: input.signal,
     }, 55_000);
     const payload = await safeJson<OpenRouterResponse>(response);
-    const text = payload.choices?.[0]?.message?.content ?? "";
+    const choice = payload.choices?.[0];
+    const text = choice?.message?.content ?? "";
     if (!text.trim()) throw new ProviderError("پاسخ متنی خالی بود.", "invalid_response", false);
     return {
       text,
       inputTokens: payload.usage?.prompt_tokens ?? 0,
       outputTokens: payload.usage?.completion_tokens ?? 0,
       providerRequestId: payload.id,
+      finishReason: choice?.finish_reason,
     };
   }
 }

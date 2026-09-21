@@ -1,4 +1,4 @@
-export type ProviderSlug = "openai" | "google-gemini" | "openrouter";
+export type ProviderSlug = "openai" | "google-gemini" | "openrouter" | "atria";
 
 export type ProviderModel = {
   id: string;
@@ -26,6 +26,7 @@ export type TextGenerationResult = {
   inputTokens: number;
   outputTokens: number;
   providerRequestId?: string;
+  finishReason?: string;
 };
 
 export type ImageGenerationInput = {

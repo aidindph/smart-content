@@ -15,7 +15,7 @@ import type {
 type GeminiModelsResponse = { models?: Array<{ name?: string; displayName?: string; supportedGenerationMethods?: string[] }> };
 type GeminiResponse = {
   responseId?: string;
-  candidates?: Array<{ content?: { parts?: Array<{ text?: string; inlineData?: { data?: string; mimeType?: string } }> } }>;
+  candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string; inlineData?: { data?: string; mimeType?: string } }> } }>;
   usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
 };
 
@@ -60,13 +60,15 @@ export class GeminiAdapter implements TextProviderAdapter, ImageProviderAdapter 
       signal: input.signal,
     }, 55_000);
     const payload = await safeJson<GeminiResponse>(response);
-    const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+    const candidate = payload.candidates?.[0];
+    const text = candidate?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
     if (!text.trim()) throw new ProviderError("پاسخ متنی خالی بود.", "invalid_response", false);
     return {
       text,
       inputTokens: payload.usageMetadata?.promptTokenCount ?? 0,
       outputTokens: payload.usageMetadata?.candidatesTokenCount ?? 0,
       providerRequestId: payload.responseId,
+      finishReason: candidate?.finishReason,
     };
   }
 

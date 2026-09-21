@@ -2,6 +2,7 @@ import "server-only";
 
 import { ProviderError } from "@/lib/providers/errors";
 import { getImageProviderAdapter, getTextProviderAdapter } from "@/lib/providers/registry";
+import type { TextGenerationResult, TextProviderAdapter } from "@/lib/providers/types";
 import { loadSystemApiKey, loadUserApiKey } from "@/lib/security/api-key-vault";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildArticlePrompt, buildImagePrompt, extractArticleTitle } from "./prompt";
@@ -18,6 +19,60 @@ type Request = {
 };
 type Step = { id: string; kind: "article" | "hero_image" | "inline_image"; position: number };
 type PricingUnit = "input_million_tokens" | "output_million_tokens" | "image" | "request";
+
+const truncatedFinishReason = /(?:max[_ -]?tokens?|length|incomplete)/i;
+
+function appendContinuation(article: string, continuation: string) {
+  const clean = continuation.trim();
+  if (!clean) return article;
+  if (article.endsWith(clean)) return article;
+  return `${article.trimEnd()}\n\n${clean}`;
+}
+
+async function generateCompleteArticle(input: {
+  adapter: TextProviderAdapter;
+  apiKey: string;
+  model: string;
+  prompt: string;
+  maxOutputTokens: number;
+}) {
+  let result = await input.adapter.generateText({
+    apiKey: input.apiKey,
+    model: input.model,
+    prompt: input.prompt,
+    maxOutputTokens: input.maxOutputTokens,
+  });
+  let article = result.text;
+  let inputTokens = result.inputTokens;
+  let outputTokens = result.outputTokens;
+  let providerRequestId = result.providerRequestId;
+
+  for (let continuation = 0; continuation < 2 && truncatedFinishReason.test(result.finishReason ?? ""); continuation += 1) {
+    result = await input.adapter.generateText({
+      apiKey: input.apiKey,
+      model: input.model,
+      maxOutputTokens: input.maxOutputTokens,
+      temperature: 0.55,
+      prompt: [
+        input.prompt,
+        "پاسخ قبلی به‌دلیل سقف خروجی نیمه‌کاره ماند. فقط ادامهٔ مستقیم همان مقاله را بنویس.",
+        "هیچ عنوانی را از ابتدا تکرار نکن، مقدمه یا بخش‌های قبلی را بازنویسی نکن و تا پایان طبیعی مقاله، جمع‌بندی و پرسش‌های متداول باقی‌مانده ادامه بده.",
+        "متن تولیدشده تا اینجا:",
+        article,
+      ].join("\n\n"),
+    });
+    article = appendContinuation(article, result.text);
+    inputTokens += result.inputTokens;
+    outputTokens += result.outputTokens;
+    providerRequestId = result.providerRequestId ?? providerRequestId;
+  }
+
+  if (truncatedFinishReason.test(result.finishReason ?? "")) {
+    throw new ProviderError("مدل پس از ادامه‌دادن نیز مقاله را کامل نکرد. لطفاً طول مقاله را کمتر کنید یا موتور دیگری را انتخاب کنید.", "invalid_response", false);
+  }
+
+  return { text: article, inputTokens, outputTokens, providerRequestId } satisfies TextGenerationResult;
+}
 
 async function pricingFor(providerId: string, modelKey: string) {
   const admin = createAdminClient();
@@ -91,10 +146,12 @@ export async function processGenerationJob(jobId: string, userId: string) {
     if (!textProvider?.enabled || textProvider.slug !== request.text_provider_slug) throw new Error("ارائه‌دهندهٔ متن غیرفعال یا ناسازگار است.");
 
     await admin.from("generation_steps").update({ status: "running", attempt: activeJob.attempt, started_at: now, error_code: null, error_message: null }).eq("id", articleStep.id);
-    const textResult = await getTextProviderAdapter(textProvider.slug).generateText({
+    const articlePrompt = buildArticlePrompt({ topic: request.topic, keywords: request.keywords, language: request.language, audience: request.audience, tone: request.tone, targetWords: request.target_words, keywordTargets: request.keyword_targets, searchIntent: request.seo_settings.search_intent, contentType: request.seo_settings.content_type, pointOfView: request.seo_settings.point_of_view, faqCount: request.seo_settings.faq_count, requiredHeadings: request.required_headings, contentBrief: request.content_brief ?? undefined, callToAction: request.seo_settings.call_to_action, forbiddenTerms: request.seo_settings.forbidden_terms, internalLinks: request.seo_settings.internal_links });
+    const textResult = await generateCompleteArticle({
+      adapter: getTextProviderAdapter(textProvider.slug),
       apiKey: textSecret.apiKey,
       model: request.text_model,
-      prompt: buildArticlePrompt({ topic: request.topic, keywords: request.keywords, language: request.language, audience: request.audience, tone: request.tone, targetWords: request.target_words, keywordTargets: request.keyword_targets, searchIntent: request.seo_settings.search_intent, contentType: request.seo_settings.content_type, pointOfView: request.seo_settings.point_of_view, faqCount: request.seo_settings.faq_count, requiredHeadings: request.required_headings, contentBrief: request.content_brief ?? undefined, callToAction: request.seo_settings.call_to_action, forbiddenTerms: request.seo_settings.forbidden_terms, internalLinks: request.seo_settings.internal_links }),
+      prompt: articlePrompt,
       maxOutputTokens: Math.min(12_000, Math.max(2_000, Math.ceil(request.target_words * 2.2))),
     });
     const title = extractArticleTitle(textResult.text, request.topic);

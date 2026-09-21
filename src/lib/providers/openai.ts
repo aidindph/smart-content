@@ -18,6 +18,8 @@ type OpenAIResponse = {
   output_text?: string;
   output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
   usage?: { input_tokens?: number; output_tokens?: number };
+  status?: string;
+  incomplete_details?: { reason?: string };
 };
 type OpenAIImageResponse = { id?: string; data?: Array<{ b64_json?: string }> };
 
@@ -64,6 +66,7 @@ export class OpenAIAdapter implements TextProviderAdapter, ImageProviderAdapter 
       inputTokens: payload.usage?.input_tokens ?? 0,
       outputTokens: payload.usage?.output_tokens ?? 0,
       providerRequestId: payload.id,
+      finishReason: payload.status === "incomplete" ? payload.incomplete_details?.reason ?? "incomplete" : undefined,
     };
   }
 

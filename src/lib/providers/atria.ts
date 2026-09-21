@@ -34,7 +34,7 @@ export class AtriaAdapter implements TextProviderAdapter {
         body: JSON.stringify({ model: model.id, messages: [{ role: "user", content: "Reply with OK only." }], max_completion_tokens: 64 }),
       }, 20_000);
       const payload = await safeJson<AtriaResponse>(response);
-      if (!payload.choices?.[0]?.message?.content?.trim()) throw new ProviderError("پاسخ آزمایشی آتریا خالی بود.", "invalid_response", false);
+      if (!contentText(payload.choices?.[0]?.message?.content).trim()) throw new ProviderError("پاسخ آزمایشی آتریا خالی بود.", "invalid_response", false);
       return { ok: true, code: "ok", message: "اتصال با موفقیت برقرار شد." };
     } catch (error) {
       return connectionFailure(error);

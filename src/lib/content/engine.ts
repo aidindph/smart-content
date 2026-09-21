@@ -97,6 +97,17 @@ async function cancellationRequested(jobId: string) {
   return Boolean(data?.cancel_requested);
 }
 
+async function markJobCancelled(jobId: string) {
+  const admin = createAdminClient();
+  const cancelledAt = new Date().toISOString();
+  await Promise.all([
+    admin.from("generation_jobs").update({ status: "cancelled", current_step: "لغوشده توسط کاربر", locked_at: null, completed_at: cancelledAt })
+      .eq("id", jobId).eq("cancel_requested", true).in("status", ["queued", "running", "cancelled"]),
+    admin.from("generation_steps").update({ status: "cancelled", completed_at: cancelledAt })
+      .eq("job_id", jobId).in("status", ["pending", "running"]),
+  ]);
+}
+
 async function failJob(job: Job, error: unknown) {
   const providerError = error instanceof ProviderError ? error : undefined;
   const code = providerError?.code ?? "unexpected";
@@ -176,7 +187,7 @@ export async function processGenerationJob(jobId: string, userId: string) {
         output_markdown: preview,
         progress: writingProgress,
         current_step: `نگارش مقاله؛ ${new Intl.NumberFormat("fa-IR").format(receivedWords)} واژه دریافت شد`,
-      }).eq("id", job.id);
+      }).eq("id", job.id).eq("cancel_requested", false);
     };
     let previewInputTokens = 0;
     let previewOutputTokens = 0;
@@ -218,6 +229,10 @@ export async function processGenerationJob(jobId: string, userId: string) {
       },
     });
     await saveLivePreview(true);
+    if (await cancellationRequested(job.id)) {
+      await markJobCancelled(job.id);
+      return { accepted: true, status: "cancelled" } as const;
+    }
     const title = extractArticleTitle(textResult.text, request.topic);
     const outputHtml = markdownToArticleHtml(textResult.text, request.language);
     const seoAnalysis = analyzeSeo(textResult.text, request.keyword_targets, request.target_words);
@@ -240,8 +255,7 @@ export async function processGenerationJob(jobId: string, userId: string) {
     ]);
 
     if (await cancellationRequested(job.id)) {
-      await admin.from("generation_jobs").update({ status: "cancelled", current_step: "لغوشده", locked_at: null, completed_at: new Date().toISOString() }).eq("id", job.id);
-      await admin.from("generation_steps").update({ status: "cancelled", completed_at: new Date().toISOString() }).eq("job_id", job.id).eq("status", "pending");
+      await markJobCancelled(job.id);
       return { accepted: true, status: "cancelled" } as const;
     }
 
@@ -257,8 +271,7 @@ export async function processGenerationJob(jobId: string, userId: string) {
 
       for (let index = 0; index < imageSteps.length; index += 1) {
         if (await cancellationRequested(job.id)) {
-          await admin.from("generation_jobs").update({ status: "cancelled", current_step: "لغوشده", completed_at: new Date().toISOString() }).eq("id", job.id);
-          await admin.from("generation_steps").update({ status: "cancelled", completed_at: new Date().toISOString() }).eq("job_id", job.id).eq("status", "pending");
+          await markJobCancelled(job.id);
           return { accepted: true, status: "cancelled" } as const;
         }
 
@@ -266,6 +279,10 @@ export async function processGenerationJob(jobId: string, userId: string) {
         await admin.from("generation_steps").update({ status: "running", attempt: activeJob.attempt, started_at: new Date().toISOString() }).eq("id", step.id);
         const imageTitle = imageSuggestions[index]?.title ?? title;
         const image = await adapter.generateImage({ apiKey: imageSecret.apiKey, model: request.image_model, prompt: buildImagePrompt(request.topic, imageTitle, index), aspectRatio: index === 0 ? "16:9" : "1:1" });
+        if (await cancellationRequested(job.id)) {
+          await markJobCancelled(job.id);
+          return { accepted: true, status: "cancelled" } as const;
+        }
         const extension = image.mimeType === "image/jpeg" ? "jpg" : image.mimeType === "image/webp" ? "webp" : "png";
         const storagePath = `${userId}/${job.id}/${step.position}-${step.id}.${extension}`;
         const { error: uploadError } = await admin.storage.from("content-assets").upload(storagePath, image.bytes, { contentType: image.mimeType, upsert: true });
@@ -282,7 +299,12 @@ export async function processGenerationJob(jobId: string, userId: string) {
       }
     }
 
-    await admin.from("generation_jobs").update({ status: "completed", progress: 100, current_step: "تکمیل‌شده", locked_at: null, completed_at: new Date().toISOString() }).eq("id", job.id);
+    const { data: completed } = await admin.from("generation_jobs").update({ status: "completed", progress: 100, current_step: "تکمیل‌شده", locked_at: null, completed_at: new Date().toISOString() })
+      .eq("id", job.id).eq("status", "running").eq("cancel_requested", false).select("id").maybeSingle<{ id: string }>();
+    if (!completed) {
+      await markJobCancelled(job.id);
+      return { accepted: true, status: "cancelled" } as const;
+    }
     return { accepted: true, status: "completed" } as const;
   } catch (error) {
     await failJob(activeJob, error);

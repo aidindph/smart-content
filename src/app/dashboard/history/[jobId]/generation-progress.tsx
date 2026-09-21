@@ -78,7 +78,14 @@ export function GenerationProgress({ job, steps, targetWords, imageCount, previe
       <p className="generation-progress-note">صفحه هر چند ثانیه به‌روزرسانی می‌شود. بستن آن فرایند ساخت را متوقف نمی‌کند.</p>
       <article className="generation-ai-preview">
         <div><span className="generation-live"><i /> پاسخ زندهٔ هوش مصنوعی</span><small>{preview ? "بخش‌های تازه با ادامهٔ نگارش به‌روزرسانی می‌شوند." : "مدل درخواست را دریافت کرده و نخستین بخش پاسخ به‌زودی نمایش داده می‌شود."}</small></div>
-        <p>{preview || "در حال برقراری جریان پاسخ…"}</p>
+        {preview ? <p>{preview}</p> : <p className="is-waiting">
+          <span aria-label="ربات در حال پردازش" className="generation-working-robot" role="img">
+            <span className="generation-robot-antenna" />
+            <span className="generation-robot-head"><i /><i /></span>
+            <span className="generation-robot-base" />
+          </span>
+          <span>در حال برقراری جریان پاسخ…</span>
+        </p>}
       </article>
 
       <ol className="generation-stages">

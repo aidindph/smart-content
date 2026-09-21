@@ -13,11 +13,19 @@ export async function cancelJobAction(formData: FormData) {
   const jobId = idSchema.parse(formData.get("jobId"));
   const { profile } = await requireUser();
   const admin = createAdminClient();
-  await admin.from("generation_jobs").update({ status: "cancelled", cancel_requested: true, current_step: "لغوشده", completed_at: new Date().toISOString() })
-    .eq("id", jobId).eq("user_id", profile.id).eq("status", "queued");
-  await admin.from("generation_jobs").update({ cancel_requested: true, current_step: "در انتظار لغو" })
-    .eq("id", jobId).eq("user_id", profile.id).eq("status", "running");
+  const cancelledAt = new Date().toISOString();
+  await admin.from("generation_jobs").update({
+    status: "cancelled",
+    cancel_requested: true,
+    current_step: "لغوشده توسط کاربر",
+    locked_at: null,
+    completed_at: cancelledAt,
+  }).eq("id", jobId).eq("user_id", profile.id).in("status", ["queued", "running"]);
+  await admin.from("generation_steps").update({ status: "cancelled", completed_at: cancelledAt })
+    .eq("job_id", jobId).eq("user_id", profile.id).in("status", ["pending", "running"]);
   revalidatePath(`/dashboard/history/${jobId}`);
+  revalidatePath("/dashboard/history");
+  revalidatePath("/dashboard");
 }
 
 export async function rerunJobAction(formData: FormData) {

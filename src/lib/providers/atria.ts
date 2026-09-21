@@ -23,7 +23,7 @@ export class AtriaAdapter implements TextProviderAdapter {
       const response = await providerFetch("https://api.atria-asi.ai/v1/chat/completions", {
         method: "POST",
         headers: this.headers(apiKey),
-        body: JSON.stringify({ model: model.id, messages: [{ role: "user", content: "سلام" }], max_completion_tokens: 16 }),
+        body: JSON.stringify({ model: model.id, messages: [{ role: "user", content: "Reply with OK only." }], max_completion_tokens: 64 }),
       }, 20_000);
       const payload = await safeJson<AtriaResponse>(response);
       if (!payload.choices?.[0]?.message?.content?.trim()) throw new ProviderError("پاسخ آزمایشی آتریا خالی بود.", "invalid_response", false);

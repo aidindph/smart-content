@@ -198,7 +198,7 @@ export async function processGenerationJob(jobId: string, userId: string) {
         apiKey: textSecret.apiKey,
         model: request.text_model,
         temperature: 0.25,
-        maxOutputTokens: 260,
+        maxOutputTokens: textProvider.slug === "atria" ? 1_800 : 260,
         prompt: [
           "برای نمایش پیش‌نمایش ساخت مقاله، فقط یک طرح خیلی کوتاه و کاربردی در سه تا پنج مورد بنویس.",
           "این طرح باید عنوان‌های کلیدی و زاویهٔ سئو را نشان دهد؛ از مقدمه و متن کامل مقاله خودداری کن.",
@@ -214,12 +214,15 @@ export async function processGenerationJob(jobId: string, userId: string) {
     } catch {
       await admin.from("generation_jobs").update({ progress: 18, current_step: "نگارش مقاله بر پایهٔ ساختار سئو" }).eq("id", job.id);
     }
+    const maxArticleOutputTokens = textProvider.slug === "atria"
+      ? Math.min(16_000, Math.max(6_000, Math.ceil(request.target_words * 4.5)))
+      : Math.min(12_000, Math.max(2_000, Math.ceil(request.target_words * 2.2)));
     const textResult = await generateCompleteArticle({
       adapter: textAdapter,
       apiKey: textSecret.apiKey,
       model: request.text_model,
       prompt: articlePrompt,
-      maxOutputTokens: Math.min(12_000, Math.max(2_000, Math.ceil(request.target_words * 2.2))),
+      maxOutputTokens: maxArticleOutputTokens,
       onTextDelta: async (delta) => {
         liveArticle += delta;
         await saveLivePreview();
